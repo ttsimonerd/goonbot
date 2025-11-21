@@ -5,7 +5,7 @@ try:
 except ImportError as e:
     raise ImportError("discord.py is not installed.") from e
 
-TOKEN = os.getenv(DISCORD_TOKEN)
+TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
