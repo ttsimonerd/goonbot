@@ -59,4 +59,5 @@ class Fun(commands.Cog):
         await ctx.send(random.choice(gifs))
 
 async def setup(bot):
-    await bot.add_cog(Fun(bot))
+    # await bot.add_cog(Fun(bot))
+    pass
