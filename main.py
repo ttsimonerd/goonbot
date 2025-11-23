@@ -49,7 +49,7 @@ async def on_ready():
     await bot.tree.sync()
     print(f"Bot conectado como {bot.user}")
 async def load_cogs():
-    await bot.load_extension("cogs.rampage")
+    await bot.load_extension("cogs.fun")
 
 # -----------------------------
 # Basicos
