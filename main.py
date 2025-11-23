@@ -9,7 +9,7 @@ import random
 
 keep_alive()
 
-intents = discord.Intents.default()
+intents = discord.Intents.all()
 intents.message_content = True
 
 # Prefix, variables & things...
@@ -48,7 +48,8 @@ def guardar_mensajes(mensajes):
 async def on_ready():
     await bot.tree.sync()
     print(f"Bot conectado como {bot.user}")
-
+async def load_cogs():
+    await bot.load_extension("cogs.rampage")
 
 # -----------------------------
 # Basicos
@@ -197,5 +198,6 @@ asyncio.run(setup_cogs2())
 # -----------------------------
 # Bot main
 # -----------------------------
+asyncio.run(load_cogs())
 token = os.getenv("DISCORD_TOKEN")
 bot.run(token)  # type: ignore
