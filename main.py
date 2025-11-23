@@ -48,8 +48,6 @@ def guardar_mensajes(mensajes):
 async def on_ready():
     await bot.tree.sync()
     print(f"Bot conectado como {bot.user}")
-async def load_cogs():
-    await bot.load_extension("cogs.fun")
 
 # -----------------------------
 # Basicos
@@ -67,13 +65,12 @@ async def ping(ctx):
         "¡Hola! Estoy funcionando y siendo hosteado por @_el_navajas en una custom db de Replit. (Alternativa a ^hola)"
     )
 
-
 @bot.command()
-async def listc(ctx):
+async def qtfn(self, ctx):
+    self = ctx.author
     await ctx.send(
-        "`Comandos disponibles actuales:\n^hola\n^ping\n^message_add [mensaje] - Añadir a la lista\n^message_list - Mostrar la lista\n/edit_message - Editar o eliminar mensaje`\n"
+        f"Que te fakin nigger {self.mention}"
     )
-
 
 # -----------------------------
 # Cog1 - Mensajes
@@ -186,6 +183,18 @@ class Fun(commands.Cog, name="Fun"):
 
         await ctx.send(f"😂 {target.mention}, {roast}")
 
+    @commands.command(name="rape")
+    async def rape(self, ctx, user: discord.Member = None):  # type: ignore
+
+        rapes = [
+            "Imma Rape You Nigga", "Ur gonna get raped", "Vas a rape"
+        ]
+
+        target = user or ctx.author
+        rape = random.choice(rapes)
+
+        await ctx.send(f"🥶 {target.mention}, {rape} 💔🎋✌😂")
+
 
 # -----------------------------
 # Cog2 Setup
@@ -198,6 +207,5 @@ asyncio.run(setup_cogs2())
 # -----------------------------
 # Bot main
 # -----------------------------
-asyncio.run(load_cogs())
 token = os.getenv("DISCORD_TOKEN")
 bot.run(token)  # type: ignore
