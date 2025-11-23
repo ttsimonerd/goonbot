@@ -1,112 +1,62 @@
-# cogs/rampage.py
 import discord
+import random
 from discord.ext import commands
-import asyncio
-from pathlib import Path
-from discord import FFmpegPCMAudio
-from discord import PCMVolumeTransformer
 
-# Ajusta la ruta si quieres otro nombre/ubicación
-AUDIO_PATH = Path("audio/rampage.mp3")
-# Volumen por defecto (1.0 = 100%)
-DEFAULT_VOLUME = 1.0
-
-class Rampage(commands.Cog):
-    """RAMPAGE"""
-
-    def __init__(self, bot: commands.Bot):
+class Fun(commands.Cog):
+    def __init__(self, bot):
         self.bot = bot
 
     @commands.command(name="rampage")
-    async def rampage(self, ctx: commands.Context, member: discord.Member = None):
+    async def rampage(self, ctx, target: discord.Member = None):
         """
-        ^rampage
-        ^rampage @User
-
-        Si el autor está en canal de voz, el bot se une a ese canal. Si no,
-        puede recibir un miembro como objetivo para unirse a su canal (si está en uno).
-        Reproduce audio local y luego se desconecta.
+        RAMPAGE
         """
-        
-        target = member or ctx.author
 
-        # target?
-        if not target.voice or not target.voice.channel:
-            await ctx.send("No estás en un canal de voz o no has especificado a nadie.")
+        if target is None:
+            await ctx.send("Debes mencionar un usuario.")
             return
 
-        channel = target.voice.channel
+        # Embed inicial
+        embed = discord.Embed(
+            title="Rampage",
+            description=f"RAMPGAE {target.mention}...\nRAMPAGE...",
+            color=discord.Color.red()
+        )
+        msg = await ctx.send(embed=embed)
 
-        # Connect
-        voice_client: discord.VoiceClient = ctx.voice_client
+        # Reacciones aleatorias
+        reaction_pool = ["🔥", "💀", "😈", "🤖", "⚡", "🧨"]
 
-        try:
-            if voice_client and voice_client.is_connected():
-                
-                if voice_client.channel.id != channel.id:
-                    await voice_client.move_to(channel)
-            else:
-                # Model Connect
-                voice_client = await channel.connect(self_deaf=True)
-        except discord.Forbidden:
-            await ctx.send("No tengo permisos :(")
-            return
-        except discord.ClientException:
-            # Reference
-            voice_client = ctx.voice_client
-            if voice_client is None:
-                await ctx.send("Error al conectar :(")
-                return
+        # Buscar últimos mensajes del target
+        mensajes_target = []
+        async for mensaje in ctx.channel.history(limit=200):
+            if mensaje.author.id == target.id:
+                mensajes_target.append(mensaje)
+            if len(mensajes_target) == 20:
+                break
 
-        await ctx.send(f"Channel: **{channel.name}**")
-
-        await asyncio.sleep(2)
-
-        # Comprobar archivo de audio
-        if not AUDIO_PATH.exists():
-            await ctx.send("ERROR: File Didn't Load")
-            # Intentamos desconectar si estamos conectados
+        # Añadir reacciones
+        for mensaje in mensajes_target:
             try:
-                if voice_client and voice_client.is_connected():
-                    await voice_client.disconnect()
-            except Exception:
+                await mensaje.add_reaction(random.choice(reaction_pool))
+            except:
                 pass
-            return
 
-        # Preparar fuente de audio (FFmpeg) y opcionalmente volumen
-        # Asegúrate de que FFmpeg esté instalado en el host
-        ffmpeg_options = {
-            "before_options": "-nostdin",
-            "options": "-vn"
-        }
+        ataques = [
+            "NIGGA",
+            "STUPID NIGGER",
+            "RAMPAGED NIGGER",
+        ]
 
-        source = FFmpegPCMAudio(str(AUDIO_PATH), **ffmpeg_options)
-        player = PCMVolumeTransformer(source, volume=DEFAULT_VOLUME)
+        for ataque in ataques:
+            await ctx.send(ataque.replace("{user}", target.mention))
 
-        try:
-            # Reproducir
-            voice_client.play(player)
-            await ctx.send("...")
-        except Exception as e:
-            await ctx.send(f"Error al reproducir: {e}")
-            try:
-                if voice_client and voice_client.is_connected():
-                    await voice_client.disconnect()
-            except Exception:
-                pass
-            return
+        gifs = [
+            "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExZTM2cGRvbDBjaWE1cHJudXVmdTZodmpjd3JybjI4MXowczJkMWVkaSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/fl0B5TLMTYLPvNervP/giphy.gif",
+            "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcHN2ZW9lc2doc2xndGFzNHpzNnF4ZXQyZjl0Y3F1MWRwNnV5cndpdyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/wrmVCNbpOyqgJ9zQTn/giphy.gif",
+        ]
 
-        # Esperar a que termine la reproducción
-        while voice_client.is_playing():
-            await asyncio.sleep(1)
+        await ctx.send(random.choice(gifs))
 
-        # Desconectar al terminar
-        try:
-            await voice_client.disconnect()
-        except Exception:
-            pass
-
-        await ctx.send("Exiting...")
-
-async def setup(bot: commands.Bot):
-    await bot.add_cog(Rampage(bot))
+async def setup(bot):
+    await bot.add_cog(Fun(bot))
