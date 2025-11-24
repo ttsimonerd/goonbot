@@ -12,9 +12,18 @@ keep_alive()
 intents = discord.Intents.all()
 intents.message_content = True
 
+# -----------------------------------------------------
 # Prefix, variables & things...
+# -----------------------------------------------------
 bot = commands.Bot(command_prefix="^", intents=intents)
 DB_FILE = "messages_db.txt"
+IMAGE_URLS = [
+    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745012944956/IMG_20251123_223528.jpg?ex=692578c2&is=69242742&hm=4b47769727c175f0c1af171968e04cbe134e6c494a87811b7d6c1044d49b7e2e&",
+    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745344426136/IMG_20251123_223600.jpg?ex=692578c2&is=69242742&hm=2abd81e14fc934758414968a69baf6f4eca971f094adabc7a9cfc37b44da663b&",
+    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745986285749/IMG_20251123_223634.jpg?ex=692578c2&is=69242742&hm=115629a925ba57951db272b46001940669e6d2928b077d192ffa50d80244afba&",
+    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267746334281851/IMG_20251123_223645.jpg?ex=692578c2&is=69242742&hm=829b1eb7f7225568105da7bd020a57aec8d43dacb225e8e5c4f0a8a6d935fecf&", 
+    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745650606171/IMG_20251123_223622.jpg?ex=692578c2&is=69242742&hm=9a6666d6599e93084ac9dd010bcc8bcb8301ca2dd88191f1112ce061da72f644&", 
+]
 
 # -----------------------------
 # Data Base
@@ -48,6 +57,43 @@ def guardar_mensajes(mensajes):
 async def on_ready():
     await bot.tree.sync()
     print(f"Bot conectado como {bot.user}")
+
+@bot.event
+async def on_message(message):
+    # Ignore bot
+    if message.author == bot.user:
+        return
+    
+    await bot.process_commands(message)
+    
+    # 0.1%
+    if random.random() < 0.001:
+        text_channels = [channel for channel in message.guild.channels if isinstance(channel, discord.TextChannel)]
+        if not text_channels:
+            return
+        random_channel = random.choice(text_channels)
+        try:
+            recent_messages = await random_channel.history(limit=100).flatten()
+            
+            if not recent_messages:
+                return
+            random_msg = random.choice(recent_messages)
+            
+            random_image_url = random.choice(IMAGE_URLS)
+            
+            embed = discord.Embed(
+                title="GREEN COMBO",
+                description="Green... 🟩",
+                color=discord.Color.green()
+            )
+            embed.set_image(url=random_image_url)
+            
+            await random_msg.reply(embed=embed)
+        
+        except discord.Forbidden:
+            pass
+        except Exception as e:
+            print(f"Error in rr: {e}")
 
 # -----------------------------
 # Basicos
