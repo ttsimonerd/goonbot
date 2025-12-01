@@ -1,8 +1,8 @@
 from keep_alive import keep_alive
 import os
-import discord
-from discord.ext import commands
-from discord import app_commands
+import discord # type: ignore
+from discord.ext import commands # type: ignore
+from discord import app_commands # type: ignore
 import json
 import asyncio
 import random
@@ -66,8 +66,8 @@ async def on_message(message):
     
     await bot.process_commands(message)
     
-    # 0.1%
-    if random.random() < 0.001:
+    # Updated chance for rr event, now its 1%
+    if random.random() < 0.01:
         text_channels = [channel for channel in message.guild.channels if isinstance(channel, discord.TextChannel)]
         if not text_channels:
             return
