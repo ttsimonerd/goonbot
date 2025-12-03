@@ -3,6 +3,7 @@ import os
 import discord # type: ignore
 from discord.ext import commands # type: ignore
 from discord import app_commands # type: ignore
+from discord import ui  # Added missing import for ui components
 import json
 import asyncio
 import random
@@ -122,10 +123,10 @@ async def ping(ctx):
     )
 
 @bot.command()
-async def qtfn(self, ctx):
-    self = ctx.author
+async def qtfn(ctx):
+    author = ctx.author
     await ctx.send(
-        f"Que te fakin nigger {self.mention}"
+        f"Que te fakin nigger {author.mention}"
     )
 
 # -----------------------------
@@ -168,7 +169,7 @@ class Mensajes(commands.Cog, name="Mensajes"):
     async def edit_message(self,
                            interaction: discord.Interaction,
                            index: int,
-                           new_content: str = " ",
+                           new_content: str = None,  # Changed default to None for proper validation
                            delete: bool = False):
         mensajes = cargar_mensajes()
 
@@ -216,7 +217,7 @@ class PasswordModal(ui.Modal, title="Autenticación requerida"):
         min_length=1
     )
 
-    async def on_submit(self, interaction: Interaction):
+    async def on_submit(self, interaction: discord.Interaction):  # Fixed type hint
         user_input = str(self.password.value).strip()
 
         if user_input != PASSWORD:
@@ -245,7 +246,7 @@ class SecretCommand(commands.Cog):
         name="secreto",
         description="Comando reservado únicamente para el administrador autorizado."
     )
-    async def secret(self, interaction: Interaction):
+    async def secret(self, interaction: discord.Interaction):  # Fixed type hint
 
         # Solo tú puedes usarlo
         if interaction.user.id != ALLOWED_USER_ID:
@@ -373,6 +374,10 @@ async def setup_cogs2():
 
 
 asyncio.run(setup_cogs2())
+
+# Setup SecretCommand
+asyncio.run(setup(bot))  # Added call to cog
+
 # -----------------------------
 # Bot main
 # -----------------------------
