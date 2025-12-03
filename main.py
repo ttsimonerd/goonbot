@@ -12,6 +12,13 @@ keep_alive()
 intents = discord.Intents.all()
 intents.message_content = True
 
+#------------------------------------------------------
+# Load external cogs (not in main.py)
+#------------------------------------------------------
+
+async def load_cogs():
+    await bot.load_extension("cogs.secret_command")
+
 # -----------------------------------------------------
 # Prefix, variables & things...
 # -----------------------------------------------------
@@ -57,6 +64,11 @@ def guardar_mensajes(mensajes):
 async def on_ready():
     await bot.tree.sync()
     print(f"Bot conectado como {bot.user}")
+    try:
+        await bot.tree.sync()
+        print("Sync Succes!")
+    except Exception as e:
+        print("Sync error:", e)
 
 @bot.event
 async def on_message(message):
@@ -309,3 +321,9 @@ asyncio.run(setup_cogs2())
 # -----------------------------
 token = os.getenv("DISCORD_TOKEN")
 bot.run(token)  # type: ignore
+async def main():
+    async with bot:
+        await load_cogs()
+asyncio.run(main())
+
+
