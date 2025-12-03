@@ -12,12 +12,6 @@ keep_alive()
 intents = discord.Intents.all()
 intents.message_content = True
 
-#------------------------------------------------------
-# Load external cogs (not in main.py)
-#------------------------------------------------------
-
-async def load_cogs():
-    await bot.load_extension("cogs.secret_command")
 
 # -----------------------------------------------------
 # Prefix, variables & things...
@@ -31,6 +25,9 @@ IMAGE_URLS = [
     "https://cdn.discordapp.com/attachments/1417592875214176447/1442267746334281851/IMG_20251123_223645.jpg?ex=692578c2&is=69242742&hm=829b1eb7f7225568105da7bd020a57aec8d43dacb225e8e5c4f0a8a6d935fecf&", 
     "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745650606171/IMG_20251123_223622.jpg?ex=692578c2&is=69242742&hm=9a6666d6599e93084ac9dd010bcc8bcb8301ca2dd88191f1112ce061da72f644&", 
 ]
+
+PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
+ALLOWED_USER_ID = "988470489909432334"
 
 # -----------------------------
 # Data Base
@@ -205,6 +202,65 @@ class Mensajes(commands.Cog, name="Mensajes"):
             guardar_mensajes(mensajes)
             await interaction.response.send_message(
                 "✅ Mensaje editado correctamente.", ephemeral=True)
+# ----------------------
+# Cog - Inv
+# ----------------------
+
+
+class PasswordModal(ui.Modal, title="Autenticación requerida"):
+    password = ui.TextInput(
+        label="Introduce la contraseña",
+        placeholder="Escribe aquí...",
+        required=True,
+        min_length=1
+    )
+
+    async def on_submit(self, interaction: Interaction):
+        user_input = str(self.password.value).strip()
+
+        if user_input != PASSWORD:
+            await interaction.response.send_message(
+                "Contraseña incorrecta.",
+                ephemeral=True
+            )
+            return
+
+        result = roll_with_limit()
+
+        await interaction.response.send_message(
+            f"Resultado: {result}",
+            ephemeral=True
+        )
+
+
+# ---------------------------------------------
+#   COG PRINCIPAL
+# ---------------------------------------------
+class SecretCommand(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @app_commands.command(
+        name="secreto",
+        description="Comando reservado únicamente para el administrador autorizado."
+    )
+    async def secret(self, interaction: Interaction):
+
+        # Solo tú puedes usarlo
+        if interaction.user.id != ALLOWED_USER_ID:
+            await interaction.response.send_message(
+                "No tienes permiso para usar este comando.",
+                ephemeral=True
+            )
+            return
+
+        # Abrir modal de contraseña
+        modal = PasswordModal()
+        await interaction.response.send_modal(modal)
+
+
+async def setup(bot):
+    await bot.add_cog(SecretCommand(bot))
 
 
 # -----------------------------
@@ -321,9 +377,3 @@ asyncio.run(setup_cogs2())
 # -----------------------------
 token = os.getenv("DISCORD_TOKEN")
 bot.run(token)  # type: ignore
-async def main():
-    async with bot:
-        await load_cogs()
-asyncio.run(main())
-
-
