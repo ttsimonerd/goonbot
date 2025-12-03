@@ -6,6 +6,7 @@ from discord import app_commands # type: ignore
 import json
 import asyncio
 import random
+from probabilities import roll_with_limit
 
 keep_alive()
 
