@@ -1,0 +1,266 @@
+from keep_alive import keep_alive
+import os
+import discord
+from discord.ext import commands
+from discord import app_commands, ui
+import json
+import asyncio
+import random
+from probabilities import roll_with_limit
+
+keep_alive()
+
+intents = discord.Intents.all()
+intents.message_content = True
+
+# -----------------------------------------------------
+# Bot
+# -----------------------------------------------------
+bot = commands.Bot(command_prefix="^", intents=intents)
+
+DB_FILE = "messages_db.txt"
+PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
+ALLOWED_USER_ID = 988470489909432334  # Solo tú
+IMAGE_URLS = [
+    "URL1",
+    "URL2",
+    "URL3",
+    "URL4",
+    "URL5",
+]
+
+# -----------------------------------------------------
+# Base de datos de mensajes
+# -----------------------------------------------------
+def cargar_mensajes():
+    if not os.path.exists(DB_FILE) or os.path.getsize(DB_FILE) == 0:
+        return []
+    with open(DB_FILE, "r") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            f.seek(0)
+            lines = f.readlines()
+            mensajes = [{"content": line.strip(), "author_id": None} for line in lines if line.strip()]
+            guardar_mensajes(mensajes)
+            return mensajes
+
+
+def guardar_mensajes(mensajes):
+    with open(DB_FILE, "w") as f:
+        json.dump(mensajes, f, indent=4)
+
+# -----------------------------------------------------
+# Eventos
+# -----------------------------------------------------
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    print(f"Bot conectado como {bot.user}")
+
+
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    await bot.process_commands(message)
+
+    # Evento aleatorio (1%)
+    if random.random() < 0.01:
+        text_channels = [c for c in message.guild.channels if isinstance(c, discord.TextChannel)]
+        if not text_channels:
+            return
+
+        random_channel = random.choice(text_channels)
+        try:
+            msgs = await random_channel.history(limit=100).flatten()
+            if not msgs:
+                return
+
+            random_msg = random.choice(msgs)
+            random_image = random.choice(IMAGE_URLS)
+
+            embed = discord.Embed(
+                title="GREEN COMBO",
+                description="Green...",
+                color=discord.Color.green(),
+            )
+            embed.set_image(url=random_image)
+
+            await random_msg.reply(embed=embed)
+
+        except Exception as e:
+            print("Error en evento RR:", e)
+
+# -----------------------------------------------------
+# Comandos básicos
+# -----------------------------------------------------
+@bot.command()
+async def hola(ctx):
+    await ctx.send("¡Bot funcionando en host custom!")
+
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send("Pong! Servidor activo.")
+
+
+@bot.command()
+async def qtfn(ctx):
+    author = ctx.author
+    await ctx.send(f"TEXTO_PLACEHOLDER {author.mention}")
+
+# -----------------------------------------------------
+# COG: Mensajes
+# -----------------------------------------------------
+class Mensajes(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.command(name="message_add")
+    async def message_add(self, ctx, *, mensaje: str):
+        mensajes = cargar_mensajes()
+        mensajes.append({"content": mensaje, "author_id": ctx.author.id})
+        guardar_mensajes(mensajes)
+        await ctx.send(f"Mensaje añadido. Total: {len(mensajes)}")
+
+    @commands.command(name="message_list")
+    async def message_list(self, ctx):
+        mensajes = cargar_mensajes()
+        if not mensajes:
+            await ctx.send("No hay mensajes guardados.")
+            return
+        listado = "\n".join([f"{i+1}. {m['content']}" for i, m in enumerate(mensajes)])
+        await ctx.send(f"Mensajes guardados:\n{listado}")
+
+    @app_commands.command(
+        name="edit_message",
+        description="Editar o eliminar un mensaje propio."
+    )
+    @app_commands.describe(
+        index="Índice del mensaje",
+        new_content="Nuevo texto",
+        delete="Eliminar mensaje"
+    )
+    async def edit_message(self, interaction: discord.Interaction, index: int, new_content: str = None, delete: bool = False):
+        mensajes = cargar_mensajes()
+
+        if index < 1 or index > len(mensajes):
+            await interaction.response.send_message("Índice inválido.", ephemeral=True)
+            return
+
+        mensaje = mensajes[index - 1]
+
+        if mensaje["author_id"] not in (None, interaction.user.id):
+            await interaction.response.send_message("Solo puedes modificar mensajes tuyos.", ephemeral=True)
+            return
+
+        if delete:
+            mensajes.pop(index - 1)
+            guardar_mensajes(mensajes)
+            await interaction.response.send_message("Mensaje eliminado.", ephemeral=True)
+        else:
+            if not new_content:
+                await interaction.response.send_message("Debes escribir algo.", ephemeral=True)
+                return
+            mensaje["content"] = new_content
+            mensaje["author_id"] = interaction.user.id
+            guardar_mensajes(mensajes)
+            await interaction.response.send_message("Mensaje editado.", ephemeral=True)
+
+# -----------------------------------------------------
+# Modal para contraseña
+# -----------------------------------------------------
+class PasswordModal(ui.Modal, title="Autenticación requerida"):
+    password = ui.TextInput(label="Introduce la contraseña", required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if self.password.value.strip() != PASSWORD:
+            await interaction.response.send_message("Contraseña incorrecta.", ephemeral=True)
+            return
+
+        result = roll_with_limit()
+        await interaction.response.send_message(f"Resultado: {result}", ephemeral=True)
+
+# -----------------------------------------------------
+# COG: Comando Secreto
+# -----------------------------------------------------
+class SecretCommand(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @app_commands.command(
+        name="secreto",
+        description="Comando reservado para el administrador."
+    )
+    async def secret(self, interaction: discord.Interaction):
+
+        if interaction.user.id != ALLOWED_USER_ID:
+            await interaction.response.send_message("No puedes usar este comando.", ephemeral=True)
+            return
+
+        await interaction.response.send_modal(PasswordModal())
+
+# -----------------------------------------------------
+# COG: Fun (comandos restaurados con placeholders)
+# -----------------------------------------------------
+class Fun(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.command(name="roast")
+    async def roast(self, ctx, user: discord.Member = None):
+        frases = [
+            "ROAST_PLACEHOLDER_1",
+            "ROAST_PLACEHOLDER_2",
+            "ROAST_PLACEHOLDER_3",
+        ]
+        target = user or ctx.author
+        await ctx.send(f"{target.mention}: {random.choice(frases)}")
+
+    @commands.command(name="rape")
+    async def rape(self, ctx, user: discord.Member = None):
+        frases = [
+            "RAPE_PLACEHOLDER_1",
+            "RAPE_PLACEHOLDER_2",
+        ]
+        target = user or ctx.author
+        await ctx.send(f"{target.mention}: {random.choice(frases)}")
+
+    @commands.command(name="rampage")
+    async def rampage(self, ctx, target: discord.Member = None):
+        if not target:
+            await ctx.send("Debes mencionar a un usuario.")
+            return
+
+        embed = discord.Embed(
+            title="Rampage",
+            description=f"Iniciando rampage sobre {target.mention}",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+        frases = [
+            "RAMPAGE_TEXT_1",
+            "RAMPAGE_TEXT_2",
+            "RAMPAGE_TEXT_3",
+        ]
+
+        for f in frases:
+            await ctx.send(f"{target.mention}: {f}")
+
+# -----------------------------------------------------
+# Cargar Cogs
+# -----------------------------------------------------
+async def load_cogs():
+    await bot.add_cog(Mensajes(bot))
+    await bot.add_cog(Fun(bot))
+    await bot.add_cog(SecretCommand(bot))
+
+asyncio.run(load_cogs())
+
+# -----------------------------------------------------
+# EXEC
+# -----------------------------------------------------
+bot.run(os.getenv("DISCORD_TOKEN"))
