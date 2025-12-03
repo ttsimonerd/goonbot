@@ -29,7 +29,7 @@ IMAGE_URLS = [
 ]
 
 PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
-ALLOWED_USER_ID = "988470489909432334"
+ALLOWED_USER_ID = 988470489909432334
 
 # -----------------------------
 # Data Base
