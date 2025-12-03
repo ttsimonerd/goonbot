@@ -5,7 +5,7 @@ from discord.ext import commands
 from probabilities import roll_with_limit
 
 PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
-ALLOWED_USER_ID = YOUR_USER_ID  # Reemplaza este valor con tu ID
+ALLOWED_USER_ID = "988470489909432334"
 
 
 # ---------------------------------------------
