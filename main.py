@@ -243,7 +243,7 @@ class SecretCommand(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="?¿",
+        name="admindashboard",
         description="Need autorization."
     )
     async def secret(self, interaction: discord.Interaction):  # Fixed type hint
