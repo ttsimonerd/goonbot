@@ -243,15 +243,15 @@ class SecretCommand(commands.Cog):
         self.bot = bot
 
     @app_commands.command(
-        name="secreto",
-        description="Comando reservado únicamente para el administrador autorizado."
+        name="?¿",
+        description="Need autorization."
     )
     async def secret(self, interaction: discord.Interaction):  # Fixed type hint
 
         # Solo tú puedes usarlo
         if interaction.user.id != ALLOWED_USER_ID:
             await interaction.response.send_message(
-                "No tienes permiso para usar este comando.",
+                "Not autorized.",
                 ephemeral=True
             )
             return
