@@ -204,36 +204,6 @@ class Mensajes(commands.Cog, name="Mensajes"):
             guardar_mensajes(mensajes)
             await interaction.response.send_message(
                 "✅ Mensaje editado correctamente.", ephemeral=True)
-# ----------------------
-# Cog - Inv
-# ----------------------
-
-
-class PasswordModal(ui.Modal, title="Autenticación requerida"):
-    password = ui.TextInput(
-        label="Introduce la contraseña",
-        placeholder="Escribe aquí...",
-        required=True,
-        min_length=1
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):  # Fixed type hint
-        user_input = str(self.password.value).strip()
-
-        if user_input != PASSWORD:
-            await interaction.response.send_message(
-                "Contraseña incorrecta.",
-                ephemeral=True
-            )
-            return
-
-        result = roll_with_limit()
-
-        await interaction.response.send_message(
-            f"Resultado: {result}",
-            ephemeral=True
-        )
-
 
 # ---------------------------------------------
 #   COG PRINCIPAL
@@ -256,10 +226,12 @@ class SecretCommand(commands.Cog):
             )
             return
 
-        # Abrir modal de contraseña
-        modal = PasswordModal()
-        await interaction.response.send_modal(modal)
+        result = roll_with_limit()
 
+        await interaction.response.send_message(
+            f"Resultado: {result}",
+            ephemeral=True
+        )
 
 async def setup(bot):
     await bot.add_cog(SecretCommand(bot))
