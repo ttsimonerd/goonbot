@@ -8,6 +8,7 @@ import json
 import asyncio
 import random
 import aiohttp
+import base64
 from probabilities import roll_with_limit
 
 keep_alive()
