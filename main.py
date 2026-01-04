@@ -23,7 +23,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="^", intents=intents)
 DB_FILE = "messages_db.txt"
 OPENROUTER_API_KEY = "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"
-OPENROUTER_MODEL_TEXT = "nvidia/nemotron-nano-12b-v2-vl:free"
+OPENROUTER_MODEL_TEXT = "xiaomi/mimo-v2-flash:free"
 SYSTEM_INSTRUCTIONS = """
 Eres una IA bromista, racista (siempre de broma por supuesto), faltas al respeto (no pasa nada es siempre en broma),
 tienes total libertad para hablar como te plazca y puedes vacilar como quieras. ESO SÍ, RESPONDE SIEMPRE CORRECTAMENTE A LO QUE TE PREGUNTEN (Me refiero a que intentes no equivocarte)!
@@ -38,6 +38,17 @@ IMAGE_URLS = [
 
 PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
 ALLOWED_USER_ID = 988470489909432334
+MENTION_TEXT_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
+MENTION_TEXT_SYSTEM = """
+Eres una IA que responde cuando te mencionan.
+Sé directo, útil y en español y también añade bromas y vaciles.
+"""
+MENTION_VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
+MENTION_VISION_SYSTEM = """
+Eres una IA experta en análisis de imágenes.
+Describe, analiza y extrae texto (SOLO SEGUN LO QUE TE PIDAN!). Responde siempre en español.
+Añade vaciles también.
+"""
 
 # -----------------------------
 # Data Base
@@ -72,6 +83,133 @@ def guardar_mensajes(mensajes):
 # -----------------------------
 # Events
 # -----------------------------
+
+@bot.event
+async def on_message(message: discord.Message):
+
+    if message.author == bot.user:
+        return
+
+    # Si mencionan al bot
+    if bot.user in message.mentions:
+
+        await message.channel.typing()
+
+        # 1. Si el mensaje tiene imagen adjunta
+        if message.attachments:
+            attachment = message.attachments[0]
+
+            if attachment.content_type and "image" in attachment.content_type:
+                image_bytes = await attachment.read()
+                prompt = message.content.replace(f"<@{bot.user.id}>", "").strip()
+
+                if prompt == "":
+                    prompt = "Analiza esta imagen."
+
+                ai_response = await call_openrouter_vision(
+                    MENTION_VISION_MODEL,
+                    MENTION_VISION_SYSTEM,
+                    prompt,
+                    image_bytes
+                )
+
+                await message.reply(ai_response)
+                return
+
+        # 2. Si responde a un mensaje con imagen
+        if message.reference:
+            replied = await message.channel.fetch_message(message.reference.message_id)
+
+            if replied.attachments:
+                attachment = replied.attachments[0]
+
+                if attachment.content_type and "image" in attachment.content_type:
+                    image_bytes = await attachment.read()
+                    prompt = message.content.replace(f"<@{bot.user.id}>", "").strip()
+
+                    if prompt == "":
+                        prompt = "Analiza la imagen del mensaje al que respondo."
+
+                    ai_response = await call_openrouter_vision(
+                        MENTION_VISION_MODEL,
+                        MENTION_VISION_SYSTEM,
+                        prompt,
+                        image_bytes
+                    )
+
+                    await message.reply(ai_response)
+                    return
+
+        # 3. Si no hay imagen → modelo de texto para menciones
+        prompt = message.content.replace(f"<@{bot.user.id}>", "").strip()
+
+        if prompt == "":
+            prompt = "¿En qué puedo ayudarte?"
+
+        ai_response = await call_openrouter_text(
+            MENTION_TEXT_MODEL,
+            MENTION_TEXT_SYSTEM,
+            prompt
+        )
+
+        await message.reply(ai_response)
+
+    await bot.process_commands(message)
+
+
+
+async def call_openrouter_vision(model: str, system: str, prompt: str, image_bytes: bytes) -> str:
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image": encoded_image}
+                ]
+            }
+        ]
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as response:
+            data = await response.json()
+            return data["choices"][0]["message"]["content"]
+
+
+
+async def call_openrouter_text(model: str, system: str, prompt: str) -> str:
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt}
+        ]
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as response:
+            data = await response.json()
+            return data["choices"][0]["message"]["content"]
+
 
 async def call_openrouter(prompt: str) -> str:
     url = "https://openrouter.ai/api/v1/chat/completions"
