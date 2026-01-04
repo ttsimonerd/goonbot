@@ -7,6 +7,7 @@ from discord import ui  # Added missing import for ui components
 import json
 import asyncio
 import random
+import aiohttp
 from probabilities import roll_with_limit
 
 keep_alive()
@@ -20,6 +21,7 @@ intents.message_content = True
 # -----------------------------------------------------
 bot = commands.Bot(command_prefix="^", intents=intents)
 DB_FILE = "messages_db.txt"
+WEBHOOK_URL = "https://myn8nwebhookttsmc.dpdns.org/webhook/brain"
 IMAGE_URLS = [
     "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745012944956/IMG_20251123_223528.jpg?ex=692578c2&is=69242742&hm=4b47769727c175f0c1af171968e04cbe134e6c494a87811b7d6c1044d49b7e2e&",
     "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745344426136/IMG_20251123_223600.jpg?ex=692578c2&is=69242742&hm=2abd81e14fc934758414968a69baf6f4eca971f094adabc7a9cfc37b44da663b&",
@@ -128,6 +130,58 @@ async def qtfn(ctx):
     await ctx.send(
         f"Que te fakin nigger {author.mention}"
     )
+# -----------------------------
+# n8n interactions
+# -----------------------------
+
+# Brain - n8n Command - AI integration
+@bot.tree.command(name="brain", description="Talk to the server brain")
+@app_commands.describe(
+    message="What do you want to say?",
+    mode="Optional mode override"
+)
+async def brain(interaction: discord.Interaction, message: str, mode: str | None = None):
+    await interaction.response.defer()
+
+    payload = {
+        "user_id": str(interaction.user.id),
+        "username": interaction.user.name,
+        "roles": [r.name for r in interaction.user.roles],
+        "message": message,
+        "subcommand": mode,
+        "locale": interaction.locale.value if interaction.locale else "en-US"
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(WEBHOOK_URL, json=payload) as resp:
+            data = await resp.json()
+
+    # Send AI messages
+    for msg in data["reply_messages"]:
+        await interaction.followup.send(msg)
+
+    # Handle moderation actions
+    if data["run_command"] and data["run_as_mod"]:
+        cmd = data["run_command"]
+        args = data["run_command_args"]
+
+        target_id = args.get("user_id")
+        reason = args.get("reason", "No reason provided")
+
+        if target_id:
+            target = interaction.guild.get_member(int(target_id))
+
+            if cmd == "kick" and target:
+                await target.kick(reason=reason)
+                await interaction.followup.send(f"User {target} has been kicked.")
+
+            elif cmd == "ban" and target:
+                await target.ban(reason=reason)
+                await interaction.followup.send(f"User {target} has been banned.")
+
+            elif cmd == "warn" and target:
+                await interaction.followup.send(f"⚠️ Warning issued to {target}: {reason}")
+
 
 # -----------------------------
 # Cog1 - Mensajes
