@@ -131,57 +131,13 @@ async def qtfn(ctx):
         f"Que te fakin nigger {author.mention}"
     )
 # -----------------------------
-# n8n interactions
+# AIs interactions
 # -----------------------------
 
-# Brain - n8n Command - AI integration
-@bot.tree.command(name="brain", description="Talk to the server brain")
+# Talk to the AI - Command - AI integration
+@bot.tree.command(name="autistic-ai", description="Blah Blah Blah")
 @app_commands.describe(
-    message="What do you want to say?",
-    mode="Optional mode override"
-)
-async def brain(interaction: discord.Interaction, message: str, mode: str | None = None):
-    await interaction.response.defer()
-
-    payload = {
-        "user_id": str(interaction.user.id),
-        "username": interaction.user.name,
-        "roles": [r.name for r in interaction.user.roles],
-        "message": message,
-        "subcommand": mode,
-        "locale": interaction.locale.value if interaction.locale else "en-US"
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(WEBHOOK_URL, json=payload) as resp:
-            data = await resp.json()
-
-    # Send AI messages
-    for msg in data["reply_messages"]:
-        await interaction.followup.send(msg)
-
-    # Handle moderation actions
-    if data["run_command"] and data["run_as_mod"]:
-        cmd = data["run_command"]
-        args = data["run_command_args"]
-
-        target_id = args.get("user_id")
-        reason = args.get("reason", "No reason provided")
-
-        if target_id:
-            target = interaction.guild.get_member(int(target_id))
-
-            if cmd == "kick" and target:
-                await target.kick(reason=reason)
-                await interaction.followup.send(f"User {target} has been kicked.")
-
-            elif cmd == "ban" and target:
-                await target.ban(reason=reason)
-                await interaction.followup.send(f"User {target} has been banned.")
-
-            elif cmd == "warn" and target:
-                await interaction.followup.send(f"⚠️ Warning issued to {target}: {reason}")
-
+    message="Hello there"
 
 # -----------------------------
 # Cog1 - Mensajes
