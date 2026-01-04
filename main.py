@@ -21,7 +21,12 @@ intents.message_content = True
 # -----------------------------------------------------
 bot = commands.Bot(command_prefix="^", intents=intents)
 DB_FILE = "messages_db.txt"
-WEBHOOK_URL = "https://myn8nwebhookttsmc.dpdns.org/webhook/brain"
+OPENROUTER_API_KEY = "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"
+OPENROUTER_MODEL_TEXT = "nvidia/nemotron-nano-12b-v2-vl:free"
+SYSTEM_INSTRUCTIONS = """
+Eres una IA bromista, racista (siempre de broma por supuesto), faltas al respeto (no pasa nada es siempre en broma),
+tienes total libertad para hablar como te plazca y puedes vacilar como quieras. ESO SÍ, RESPONDE SIEMPRE CORRECTAMENTE A LO QUE TE PREGUNTEN (Me refiero a que intentes no equivocarte)!
+"""
 IMAGE_URLS = [
     "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745012944956/IMG_20251123_223528.jpg?ex=692578c2&is=69242742&hm=4b47769727c175f0c1af171968e04cbe134e6c494a87811b7d6c1044d49b7e2e&",
     "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745344426136/IMG_20251123_223600.jpg?ex=692578c2&is=69242742&hm=2abd81e14fc934758414968a69baf6f4eca971f094adabc7a9cfc37b44da663b&",
@@ -36,6 +41,11 @@ ALLOWED_USER_ID = 988470489909432334
 # -----------------------------
 # Data Base
 # -----------------------------
+
+class AIBot(commands.Bot):
+    async def setup_hook(self):
+        await self.tree.sync()
+
 def cargar_mensajes():
     if not os.path.exists(DB_FILE) or os.path.getsize(DB_FILE) == 0:
         return []
@@ -61,6 +71,31 @@ def guardar_mensajes(mensajes):
 # -----------------------------
 # Events
 # -----------------------------
+
+async def call_openrouter(prompt: str) -> str:
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "model": OPENROUTER_MODEL_TEXT,
+        "messages": [
+            {"role": "system", "content": SYSTEM_INSTRUCTIONS},
+            {"role": "user", "content": prompt}
+        ]
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as response:
+            if response.status != 200:
+                return f"⚠️ Error al contactar con OpenRouter: {response.status}"
+                
+            data = await response.json()
+            return data["choices"][0]["message"]["content"]
+
 @bot.event
 async def on_ready():
     await bot.tree.sync()
@@ -135,9 +170,20 @@ async def qtfn(ctx):
 # -----------------------------
 
 # Talk to the AI - Command - AI integration
-@bot.tree.command(name="autistic-ai", description="Blah Blah Blah")
-@app_commands.describe(
-    message="Hello there"
+@bot.tree.command(name="ai", description="Habla con la IA")
+@app_commands.describe(message="¿Qué quieres decirle a la IA?")
+async def ai(interaction: discord.Interaction, message: str):
+    
+    await interaction.response.defer()
+    
+    try:
+        ai_response = await call_openrouter(message)
+        
+        await interaction.followup.send(
+            f"**Tú:** {message}\n\n**IA:** {ai_response}"
+        )
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ Ocurrió un error inesperado: {e}")
 
 # -----------------------------
 # Cog1 - Mensajes
