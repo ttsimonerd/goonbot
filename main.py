@@ -309,8 +309,8 @@ async def qtfn(ctx):
 # -----------------------------
 
 # Talk to the AI - Command - AI integration
-@bot.tree.command(name="ai", description="Habla con la IA")
-@app_commands.describe(message="¿Qué quieres decirle a la IA?")
+@bot.tree.command(name="clanker", description="blah blah blah")
+@app_commands.describe(message="💔🥀")
 async def ai(interaction: discord.Interaction, message: str):
     
     await interaction.response.defer()
@@ -322,7 +322,7 @@ async def ai(interaction: discord.Interaction, message: str):
             f"**Tú:** {message}\n\n**IA:** {ai_response}"
         )
     except Exception as e:
-        await interaction.followup.send(f"⚠️ Ocurrió un error inesperado: {e}")
+        await interaction.followup.send(f"⚠️ Failed reaching API: {e}")
 
 # -----------------------------
 # Cog1 - Mensajes
