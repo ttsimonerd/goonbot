@@ -22,7 +22,7 @@ intents.message_content = True
 # -----------------------------------------------------
 bot = commands.Bot(command_prefix="^", intents=intents)
 DB_FILE = "messages_db.txt"
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_APIKEY")
 OPENROUTER_MODEL_TEXT = "xiaomi/mimo-v2-flash:free"
 SYSTEM_INSTRUCTIONS = """
 Eres una IA bromista, racista (siempre de broma por supuesto), faltas al respeto (no pasa nada es siempre en broma),
