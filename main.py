@@ -288,25 +288,93 @@ async def sendwebhook(interaction: discord.Interaction, password: str):
         print(f"Error sending webhook: {e}")
         await interaction.response.send_message("Failed to send request.", ephemeral=True)
 
-# -----------------------------
-# AIs interactions
-# -----------------------------
 
-# Talk to the AI - Command - AI integration
 @bot.tree.command(name="clanker", description="blah blah blah")
-@app_commands.describe(message="💔🥀")
-async def ai(interaction: discord.Interaction, message: str):
+@app_commands.describe(
+    message="💔🥀",
+    temperature="Set temp from 0.0 - 2.0"
+)
+async def ai(
+    interaction: discord.Interaction, 
+    message: str, 
+    temperature: float = 1.0
+):
+    # Validate inputs
+    if not (0.0 <= temperature <= 2.0):
+        await interaction.response.send_message("❌ Temp rang 0.0 - 2.0", ephemeral=True)
+        return
     
     await interaction.response.defer()
     
     try:
-        ai_response = await call_openrouter(message)
+        # Attempt API call with retry (using fixed defaults for max_tokens and stream)
+        ai_response = await call_openrouter_enhanced(message, temperature, max_tokens=500, stream=False)
         
-        await interaction.followup.send(
-            f"**Tú:** {message}\n\n**IA:** {ai_response}"
+        # Format response in an embed
+        embed = discord.Embed(
+            title="🤖 IA",
+            color=discord.Color.blue()
         )
+        embed.add_field(name="Tú:", value=message[:1024], inline=False)  # Truncate if too long
+        embed.add_field(name="IA:", value=ai_response[:1024], inline=False)
+        embed.set_footer(text=f"Model: {OPENROUTER_MODEL_TEXT} | Temp: {temperature}")
+        
+        await interaction.followup.send(embed=embed)
     except Exception as e:
-        await interaction.followup.send(f"⚠️ Failed reaching API: {e}")
+        await interaction.followup.send(f"⚠️ Error: {str(e)}.")
+
+# Enhanced OpenRouter call with retries, parameters, and optional streaming
+async def call_openrouter_enhanced(prompt: str, temperature: float, max_tokens: int, stream: bool) -> str:
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "model": OPENROUTER_MODEL_TEXT,
+        "messages": [
+            {"role": "system", "content": SYSTEM_INSTRUCTIONS},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": stream  # Enable streaming if requested
+    }
+    
+    for attempt in range(2):  # Retry once on failure
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=payload) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise Exception(f"HTTP {response.status}: {error_text}")
+                    
+                    if stream:
+                        # Handle streaming response
+                        full_response = ""
+                        async for line in response.content:
+                            line = line.decode('utf-8').strip()
+                            if line.startswith("data: "):
+                                data = line[6:]
+                                if data == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(data)
+                                    if "choices" in chunk and chunk["choices"][0]["delta"].get("content"):
+                                        full_response += chunk["choices"][0]["delta"]["content"]
+                                except json.JSONDecodeError:
+                                    continue
+                        return full_response
+                    else:
+                        # Non-streaming response
+                        data = await response.json()
+                        return data["choices"][0]["message"]["content"]
+        except Exception as e:
+            if attempt == 0:
+                await asyncio.sleep(1)  # Wait 1 second before retry
+            else:
+                raise e  # Re-raise after retry
 
 # -----------------------------
 # Cog1 - Mensajes
