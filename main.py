@@ -10,6 +10,7 @@ import random
 import aiohttp
 import base64
 from probabilities import roll_with_limit
+import requests
 
 keep_alive()
 
@@ -49,6 +50,7 @@ Eres una IA experta en análisis de imágenes.
 Describe, analiza y extrae texto (SOLO SEGUN LO QUE TE PIDAN!). Responde siempre en español.
 Añade vaciles también.
 """
+WEBHOOK_URL = os.getenv("WEBHOOK_DEP")
 
 # -----------------------------
 # Data Base
@@ -266,6 +268,26 @@ async def qtfn(ctx):
     await ctx.send(
         f"Que te fakin nigger {author.mention}"
     )
+
+@bot.tree.command(name="redeploy", description="Redeploy bot via render webhook request. Dev only!")
+@app_commands.describe(password="OAuth")
+async def sendwebhook(interaction: discord.Interaction, password: str):
+    # Check if the password is correct
+    if password != "goontime67":
+        await interaction.response.send_message("Access denied.", ephemeral=True)
+        return
+
+    try:
+        # Send the webhook request (assuming a simple POST request; adjust if needed)
+        response = requests.post(WEBHOOK_URL)
+        response.raise_for_status()  # Raise an error for bad responses (4xx or 5xx)
+        
+        # Send the confirmation message
+        await interaction.response.send_message("Request sent! Re-deploying...")
+    except requests.RequestException as e:
+        print(f"Error sending webhook: {e}")
+        await interaction.response.send_message("Failed to send request.", ephemeral=True)
+
 # -----------------------------
 # AIs interactions
 # -----------------------------
