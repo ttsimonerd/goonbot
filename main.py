@@ -54,10 +54,6 @@ Añade vaciles también.
 # Data Base
 # -----------------------------
 
-class AIBot(commands.Bot):
-    async def setup_hook(self):
-        await self.tree.sync()
-
 def cargar_mensajes():
     if not os.path.exists(DB_FILE) or os.path.getsize(DB_FILE) == 0:
         return []
@@ -175,8 +171,8 @@ async def call_openrouter_vision(model: str, system: str, prompt: str, image_byt
             {
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": prompt},
-                    {"type": "input_image", "image": encoded_image}
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
                 ]
             }
         ]
@@ -184,6 +180,8 @@ async def call_openrouter_vision(model: str, system: str, prompt: str, image_byt
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, headers=headers, json=payload) as response:
+            if response.status != 200:
+                return f"⚠️ Error al contactar con OpenRouter: {response.status}"
             data = await response.json()
             return data["choices"][0]["message"]["content"]
 
@@ -207,6 +205,8 @@ async def call_openrouter_text(model: str, system: str, prompt: str) -> str:
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, headers=headers, json=payload) as response:
+            if response.status != 200:
+                return f"⚠️ Error al contactar con OpenRouter: {response.status}"
             data = await response.json()
             return data["choices"][0]["message"]["content"]
 
@@ -237,50 +237,12 @@ async def call_openrouter(prompt: str) -> str:
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
     print(f"Bot conectado como {bot.user}")
     try:
         await bot.tree.sync()
         print("Sync Succes!")
     except Exception as e:
         print("Sync error:", e)
-
-@bot.event
-async def on_message(message):
-    # Ignore bot
-    if message.author == bot.user:
-        return
-    
-    await bot.process_commands(message)
-    
-    # Updated chance for rr event, now its 1%
-    if random.random() < 0.01:
-        text_channels = [channel for channel in message.guild.channels if isinstance(channel, discord.TextChannel)]
-        if not text_channels:
-            return
-        random_channel = random.choice(text_channels)
-        try:
-            recent_messages = await random_channel.history(limit=100).flatten()
-            
-            if not recent_messages:
-                return
-            random_msg = random.choice(recent_messages)
-            
-            random_image_url = random.choice(IMAGE_URLS)
-            
-            embed = discord.Embed(
-                title="GREEN COMBO",
-                description="Green... 🟩",
-                color=discord.Color.green()
-            )
-            embed.set_image(url=random_image_url)
-            
-            await random_msg.reply(embed=embed)
-        
-        except discord.Forbidden:
-            pass
-        except Exception as e:
-            print(f"Error in rr: {e}")
 
 # -----------------------------
 # Basicos
@@ -364,7 +326,7 @@ class Mensajes(commands.Cog, name="Mensajes"):
     async def edit_message(self,
                            interaction: discord.Interaction,
                            index: int,
-                           new_content: str = None,  # Changed default to None for proper validation
+                           new_content: str | None = None,
                            delete: bool = False):
         mensajes = cargar_mensajes()
 
@@ -518,9 +480,9 @@ class Fun(commands.Cog, name="Fun"):
                 pass
 
         ataques = [
-            "NIGGA",
-            "STUPID NIGGER",
-            "RAMPAGED NIGGER",
+            "{user} NIGGA",
+            "{user} STUPID NIGGER",
+            "{user} RAMPAGED NIGGER",
         ]
 
         for ataque in ataques:
