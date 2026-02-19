@@ -17,7 +17,7 @@
 - [X] Have a dashboard to send messages through the bot?
 - [X] More functions coming soon?
 
-```bash
+```md
 Plz check my other repos if you reached here
 ```
 
