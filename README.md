@@ -20,8 +20,7 @@
 ```md
 Plz check my other repos if you reached here
 ```
----
-Repos --> [Here :>]()
+Repos --> [Here :>](https://github.com/ttsimonerd?tab=repositories)
 ---
 PD: if you want to contact me through other platforms choose discord plz [^2]
 [^2]: My discord here --> [el_navajas](https://discord.com/users/988470489909432334)
