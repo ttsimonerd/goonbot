@@ -8,18 +8,14 @@
 ![Goonbot's discord profile picture](https://cdn.discordapp.com/avatars/1440784584156385472/c77896c428794431a4288f5eb2f27021?size=256) [^1]
 [^1]: Ts is the Goonbot discord profile picture
 
+## What can this bot do? 👣
 
-
-
-
-
-
-
-
-
-
-
-
+- [ ] Make you a sandwich?
+- [X] Roast you and your friends?
+- [X] Ban members with stupid reasons?
+- [X] Have a secret code to run a custom script?
+- [X] Have a dashboard to send messages through the bot?
+- [X] More functions coming soon?
 
 
 PD: if you want to contact me through other platforms choose discord plz [^2]
