@@ -20,6 +20,7 @@
 ```md
 Plz check my other repos if you reached here
 ```
+-
 Repos --> [Here :>](https://github.com/ttsimonerd?tab=repositories)
 ---
 PD: if you want to contact me through other platforms choose discord plz [^2]
