@@ -11,7 +11,7 @@
 ## What can this bot do? 👣
 
 - [ ] Make you a sandwich?
-- [X] Roast you and your friends?
+- [X] Roast you and your friends? [X]
 - [X] Ban members with stupid reasons?
 - [X] Have a secret code to run a custom script?
 - [X] Have a dashboard to send messages through the bot?
