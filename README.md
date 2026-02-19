@@ -8,5 +8,19 @@
 ![Goonbot's discord profile picture](https://cdn.discordapp.com/avatars/1440784584156385472/c77896c428794431a4288f5eb2f27021?size=256) [^1]
 [^1]: Ts is the Goonbot discord profile picture
 
-PD if you want to contact me through other platforms choose discord plz [^2]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PD: if you want to contact me through other platforms choose discord plz [^2]
 [^2]: My discord here --> [el_navajas](https://discord.com/users/988470489909432334)
