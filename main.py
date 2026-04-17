@@ -21,7 +21,23 @@ intents.message_content = True
 # -----------------------------------------------------
 # Prefix, variables & things...
 # -----------------------------------------------------
-bot = commands.Bot(command_prefix="^", intents=intents)
+class GoonBot(commands.Bot):
+    async def setup_hook(self):
+        await self.load_extension("cogs.mensajes")
+        await self.load_extension("cogs.fun")
+        await self.load_extension("cogs.secret_command")
+        await self.load_extension("cogs.soundboard")
+        await self.load_extension("cogs.gambling")
+        await self.load_extension("cogs.suggestions")
+        await self.load_extension("cogs.aitexts")
+        await self.load_extension("cogs.settings")
+        try:
+            await self.tree.sync()
+            print("Sync Success!")
+        except Exception as e:
+            print("Sync error:", e)
+
+bot = GoonBot(command_prefix="^", intents=intents)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_APIKEY")
 OPENROUTER_MODEL_TEXT = "xiaomi/mimo-v2-flash:free"
 SYSTEM_INSTRUCTIONS = """
@@ -464,17 +480,17 @@ async def call_openrouter_enhanced(prompt: str, temperature: float, max_tokens: 
 async def los_horrores(ctx, password: str):
     # Only you can run this
     if ctx.author.id != ALLOWED_USER_ID:
-        await ctx.send("❌ No estas autorizado, nigga.", ephemeral=True)
+        await ctx.send("❌ No estas autorizado, nigga.")
         return
 
     # Check against a DIFFERENT password (not the one used elsewhere)
     NUKE_PASSWORD = os.getenv("NUKE_PASSWORD")
     if not NUKE_PASSWORD:
-        await ctx.send("❌ The dev is missing something... 👀", ephemeral=True)
+        await ctx.send("❌ The dev is missing something... 👀")
         return
 
     if password != NUKE_PASSWORD:
-        await ctx.send("❌ Nuh uh", ephemeral=True)
+        await ctx.send("❌ Nuh uh")
         return
 
     # Confirmation to avoid accidents
@@ -517,25 +533,7 @@ async def los_horrores(ctx, password: str):
     except:
         pass
 
-# -----------------------------
-# Bot Setup & Main
-# -----------------------------
-async def setup_hook():
-    await bot.load_extension("cogs.mensajes")
-    await bot.load_extension("cogs.fun")
-    await bot.load_extension("cogs.secret_command")
-    await bot.load_extension("cogs.soundboard")
-    await bot.load_extension("cogs.gambling")
-    await bot.load_extension("cogs.suggestions")
-    await bot.load_extension("cogs.aitexts")
-    await bot.load_extension("cogs.settings")
-    try:
-        await bot.tree.sync()
-        print("Sync Success!")
-    except Exception as e:
-        print("Sync error:", e)
-
-bot.setup_hook = setup_hook
+# setup_hook is defined inside GoonBot class above
 
 token = os.getenv("DISCORD_TOKEN")
 if token:
