@@ -241,6 +241,113 @@ async def qtfn(ctx):
         f"Que te fakin nigger {author.mention}"
     )
 
+
+@bot.command(name="help")
+async def help_command(ctx):
+    embed = discord.Embed(
+        title="📖 Goonbot — Lista de Comandos",
+        description="Prefijo: `^` para comandos normales. `/` para comandos de barra (slash).",
+        color=discord.Color.blurple()
+    )
+
+    embed.add_field(
+        name="🔧 Básicos  `^`",
+        value=(
+            "`^hola` / `^ping` — Comprueba si el bot está vivo\n"
+            "`^qtfn` — Que te fakin nigger\n"
+            "`^help` — Esta ayuda"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="💬 Mensajes  `^`",
+        value=(
+            "`^message_add <texto>` — Guarda un mensaje\n"
+            "`^message_list` — Lista los mensajes guardados"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="💬 Mensajes  `/`",
+        value=(
+            "`/edit_message` — Edita o elimina un mensaje tuyo"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="😂 Diversión  `^`",
+        value=(
+            "`^roast [@usuario]` — Insulta a alguien\n"
+            "`^rape [@usuario]` — Amenaza a alguien\n"
+            "`^rampage @usuario` — Rampage contra un usuario\n"
+            "`^los_horrores <password>` — 💀 Comando secreto de destrucción"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎲 Gambling  `/`",
+        value=(
+            "`/roulette` — Juega a la ruleta rusa (1/6 de morir)\n"
+            "`/gambling_warns [@usuario]` — Consulta warns de gambling\n"
+            "`/gambling_pardon @usuario` — *(Admin)* Perdona warns"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔊 Soundboard  `/`",
+        value=(
+            "`/play <sonido>` — Reproduce un sonido en tu canal de voz\n"
+            "`/sounds` — Lista los sonidos disponibles"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="💡 Sugerencias  `/`",
+        value=(
+            "`/suggest` — Abre el formulario de sugerencias"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📱 IA Textos  `/`",
+        value=(
+            "`/text @usuario <mensaje>` — La IA responde como si fuera esa persona\n"
+            "`/clanker <mensaje>` — Chat con la IA bromista"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚙️ Configuración  `/`  *(Admin)*",
+        value=(
+            "`/settings view` — Ver configuración actual\n"
+            "`/settings gambling_channel #canal` — Cambiar canal de gambling\n"
+            "`/settings suggestions_channel #canal` — Cambiar canal de sugerencias\n"
+            "`/settings lockout_hours <n>` — Horas de ban por gambling\n"
+            "`/settings max_warns <n>` — Warns antes del ban"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🔐 Admin  `/`",
+        value=(
+            "`/admindashboard` — Dashboard secreto del admin\n"
+            "`/redeploy` — Redeploy del bot (Dev only)"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(text="Goonbot • Usa los comandos con responsabilidad... o no, igual da. 😂")
+    await ctx.send(embed=embed)
+
 @bot.tree.command(name="redeploy", description="Redeploy bot via render webhook request. Dev only!")
 @app_commands.describe(password="OAuth")
 async def sendwebhook(interaction: discord.Interaction, password: str):
@@ -419,6 +526,7 @@ async def setup_hook():
     await bot.load_extension("cogs.gambling")
     await bot.load_extension("cogs.suggestions")
     await bot.load_extension("cogs.aitexts")
+    await bot.load_extension("cogs.settings")
     try:
         await bot.tree.sync()
         print("Sync Success!")

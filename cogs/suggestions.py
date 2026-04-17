@@ -1,10 +1,21 @@
 import os
+import json
 import discord
 from discord import app_commands, ui, Interaction
 from discord.ext import commands
 
-# Auto-detect channel with this name (case-insensitive)
-SUGGESTIONS_CHANNEL_NAME = "suggestions"
+SETTINGS_FILE = "settings.json"
+
+
+def load_settings() -> dict:
+    defaults = {"suggestions_channel_id": None}
+    if not os.path.exists(SETTINGS_FILE):
+        return defaults
+    with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return defaults
 
 
 # ---------------------
@@ -31,17 +42,22 @@ class SuggestionModal(ui.Modal, title="💡 Nueva Sugerencia"):
 
     async def on_submit(self, interaction: Interaction):
         guild = interaction.guild
+        settings = load_settings()
+        ch_id = settings.get("suggestions_channel_id")
 
-        # Find the suggestions channel
+        # Try to get channel by ID first, then fallback to name auto-detect
         suggestions_channel = None
-        for ch in guild.text_channels:
-            if SUGGESTIONS_CHANNEL_NAME in ch.name.lower():
-                suggestions_channel = ch
-                break
+        if ch_id:
+            suggestions_channel = guild.get_channel(ch_id)
+        if suggestions_channel is None:
+            for ch in guild.text_channels:
+                if "suggestions" in ch.name.lower() or "sugerencias" in ch.name.lower():
+                    suggestions_channel = ch
+                    break
 
         if suggestions_channel is None:
             await interaction.response.send_message(
-                f"❌ No se encontró un canal llamado `{SUGGESTIONS_CHANNEL_NAME}`. Pídele al admin que lo cree.",
+                "❌ No se encontró el canal de sugerencias. Pídele al admin que lo configure con `/settings suggestions_channel`.",
                 ephemeral=True
             )
             return
