@@ -44,10 +44,17 @@ class Soundboard(commands.Cog, name="Soundboard"):
             await interaction.followup.send(f"❌ No se pudo conectar al canal: {e}", ephemeral=True)
             return
 
-        vc.play(
-            discord.FFmpegPCMAudio(sound_path),
-            after=lambda e: self.bot.loop.create_task(self._disconnect(vc, e))
-        )
+        print(f"[Soundboard] Attempting to play {sound_path} in {target_channel.name}")
+        try:
+            vc.play(
+                discord.FFmpegPCMAudio(sound_path),
+                after=lambda e: self.bot.loop.create_task(self._disconnect(vc, e))
+            )
+        except Exception as e:
+            print(f"[Soundboard] vc.play exception: {e}")
+            await interaction.followup.send(f"❌ Error al intentar reproducir audio: {e}", ephemeral=True)
+            await vc.disconnect()
+            return
 
         await interaction.followup.send(
             f"🔊 Reproduciendo `{sound_name}` en **{target_channel.name}**... 💀"

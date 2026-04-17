@@ -1,7 +1,7 @@
 FROM python:3.10.13
 
 # ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg build-essential libsndfile1 && apt-get clean
+RUN apt-get update && apt-get install -y ffmpeg build-essential libsndfile1 libopus-dev libffi-dev && apt-get clean
 
 WORKDIR /app
 
