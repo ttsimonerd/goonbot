@@ -179,10 +179,13 @@ def send():
 
 
 def run():
-   app.run(host="0.0.0.0", port=8080)
+   port = int(os.environ.get("PORT", 8080))
+   app.run(host="0.0.0.0", port=port)
 
 
 def keep_alive():
-   t = Thread(target=run)
-   t.start()
-
+   try:
+      t = Thread(target=run)
+      t.start()
+   except Exception as e:
+      print(f"Warning: keep_alive failed to start: {e}")

@@ -12,7 +12,10 @@ import base64
 from probabilities import roll_with_limit
 import requests
 
-keep_alive()
+try:
+    keep_alive()
+except Exception as e:
+    print(f"Warning: keep_alive failed to start: {e}")
 
 intents = discord.Intents.all()
 intents.message_content = True
@@ -23,19 +26,28 @@ intents.message_content = True
 # -----------------------------------------------------
 class GoonBot(commands.Bot):
     async def setup_hook(self):
-        await self.load_extension("cogs.mensajes")
-        await self.load_extension("cogs.fun")
-        await self.load_extension("cogs.secret_command")
-        await self.load_extension("cogs.soundboard")
-        await self.load_extension("cogs.gambling")
-        await self.load_extension("cogs.suggestions")
-        await self.load_extension("cogs.aitexts")
-        await self.load_extension("cogs.settings")
+        extensions = [
+            "cogs.mensajes",
+            "cogs.fun",
+            "cogs.secret_command",
+            "cogs.soundboard",
+            "cogs.gambling",
+            "cogs.suggestions",
+            "cogs.aitexts",
+            "cogs.settings"
+        ]
+        for ext in extensions:
+            try:
+                await self.load_extension(ext)
+                print(f"✅ Loaded extension: {ext}")
+            except Exception as e:
+                print(f"❌ Failed to load extension {ext}: {e}")
+        
         try:
             await self.tree.sync()
-            print("Sync Success!")
+            print("✅ Slash commands synced!")
         except Exception as e:
-            print("Sync error:", e)
+            print(f"❌ Sync error: {e}")
 
 bot = GoonBot(command_prefix="^", intents=intents)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_APIKEY")
