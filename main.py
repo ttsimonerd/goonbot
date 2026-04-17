@@ -49,7 +49,7 @@ class GoonBot(commands.Bot):
         except Exception as e:
             print(f"❌ Sync error: {e}")
 
-bot = GoonBot(command_prefix="^", intents=intents)
+bot = GoonBot(command_prefix="^", intents=intents, help_command=None)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_APIKEY")
 OPENROUTER_MODEL_TEXT = "xiaomi/mimo-v2-flash:free"
 SYSTEM_INSTRUCTIONS = """
