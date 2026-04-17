@@ -302,6 +302,8 @@ async def help_command(ctx):
         name="🔊 Soundboard  `/`",
         value=(
             "`/play <sonido>` — Reproduce un sonido en tu canal de voz\n"
+            "`/play <sonido> channel:#canal` — Reproduce en un canal de voz específico 🎯\n"
+            "`/play <sonido> user:@usuario` — Reproduce en el canal donde está ese usuario 😈\n"
             "`/sounds` — Lista los sonidos disponibles"
         ),
         inline=False

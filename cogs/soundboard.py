@@ -3,13 +3,14 @@ import asyncio
 import discord
 from discord.ext import commands
 from discord import app_commands
+from typing import Optional
 
 # Lists all audio files in audio/ so users can discover them
 AUDIO_DIR = "audio"
 
 
 class Soundboard(commands.Cog, name="Soundboard"):
-    """Commandos para reproducir sonidos en canales de voz."""
+    """Comandos para reproducir sonidos en canales de voz."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -24,17 +25,82 @@ class Soundboard(commands.Cog, name="Soundboard"):
             if f.endswith((".mp3", ".wav", ".ogg"))
         ]
 
-    @app_commands.command(name="play", description="Reproduce un sonido en tu canal de voz.")
-    @app_commands.describe(sound="Nombre del sonido a reproducir")
-    async def play(self, interaction: discord.Interaction, sound: str):
-        # Must be in a voice channel
-        if not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.response.send_message(
-                "❌ Debes estar en un canal de voz para usar este comando.", ephemeral=True
-            )
+    async def _play_in_channel(
+        self,
+        interaction: discord.Interaction,
+        sound_path: str,
+        sound_name: str,
+        target_channel: discord.VoiceChannel
+    ):
+        """Core logic: connect to target_channel, play audio, disconnect."""
+        # Disconnect from any existing voice connection first
+        for existing_vc in self.bot.voice_clients:
+            if existing_vc.guild == interaction.guild:
+                await existing_vc.disconnect(force=True)
+
+        try:
+            vc = await target_channel.connect()
+        except discord.ClientException as e:
+            await interaction.followup.send(f"❌ No se pudo conectar al canal: {e}", ephemeral=True)
             return
 
-        # Find the file
+        vc.play(
+            discord.FFmpegPCMAudio(sound_path),
+            after=lambda e: self.bot.loop.create_task(self._disconnect(vc, e))
+        )
+
+        await interaction.followup.send(
+            f"🔊 Reproduciendo `{sound_name}` en **{target_channel.name}**... 💀"
+        )
+
+    @app_commands.command(
+        name="play",
+        description="Reproduce un sonido en un canal de voz. ¡Perfecto para bromear!"
+    )
+    @app_commands.describe(
+        sound="Nombre del sonido a reproducir",
+        channel="Canal de voz donde reproducir (opcional)",
+        user="Reproduce en el canal de voz donde está este usuario (opcional)"
+    )
+    async def play(
+        self,
+        interaction: discord.Interaction,
+        sound: str,
+        channel: Optional[discord.VoiceChannel] = None,
+        user: Optional[discord.Member] = None,
+    ):
+        await interaction.response.defer()
+
+        # --- Resolve target voice channel (priority: channel > user > self) ---
+        target_channel: discord.VoiceChannel | None = None
+
+        if channel is not None:
+            # Explicit channel provided
+            target_channel = channel
+
+        elif user is not None:
+            # Join wherever the target user is
+            if user.voice and user.voice.channel:
+                target_channel = user.voice.channel
+            else:
+                await interaction.followup.send(
+                    f"❌ {user.mention} no está en ningún canal de voz ahora mismo.",
+                    ephemeral=True
+                )
+                return
+
+        else:
+            # Fallback: join the command author's channel
+            if interaction.user.voice and interaction.user.voice.channel:
+                target_channel = interaction.user.voice.channel
+            else:
+                await interaction.followup.send(
+                    "❌ Debes estar en un canal de voz, o especificar un `canal` o `usuario`.",
+                    ephemeral=True
+                )
+                return
+
+        # --- Find the sound file ---
         sound_path = None
         for ext in (".mp3", ".wav", ".ogg"):
             candidate = os.path.join(AUDIO_DIR, sound + ext)
@@ -44,34 +110,14 @@ class Soundboard(commands.Cog, name="Soundboard"):
 
         if not sound_path:
             available = ", ".join(self.get_sounds()) or "ninguno"
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ Sonido `{sound}` no encontrado.\n🎵 Disponibles: `{available}`",
                 ephemeral=True
             )
             return
 
-        await interaction.response.send_message(f"🔊 Reproduciendo `{sound}`...")
-
-        voice_channel = interaction.user.voice.channel
-
-        try:
-            # Connect to voice channel
-            vc = await voice_channel.connect()
-
-            # Play the audio
-            vc.play(
-                discord.FFmpegPCMAudio(sound_path),
-                after=lambda e: self.bot.loop.create_task(self._disconnect(vc, e))
-            )
-        except discord.ClientException:
-            # Already connected somewhere — disconnect and reconnect
-            for vc in self.bot.voice_clients:
-                await vc.disconnect(force=True)
-            vc = await voice_channel.connect()
-            vc.play(
-                discord.FFmpegPCMAudio(sound_path),
-                after=lambda e: self.bot.loop.create_task(self._disconnect(vc, e))
-            )
+        # --- Play it ---
+        await self._play_in_channel(interaction, sound_path, sound, target_channel)
 
     async def _disconnect(self, vc: discord.VoiceClient, error):
         """Disconnects from voice channel after audio finishes."""
