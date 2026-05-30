@@ -168,17 +168,76 @@ def poker_rank(cards: list[str]) -> tuple[int, list[int]]:
 
 def hand_rank_name(rank: int) -> str:
     names = [
-        "High Card",
-        "One Pair",
-        "Two Pair",
-        "Three of a Kind",
-        "Straight",
-        "Flush",
-        "Full House",
-        "Four of a Kind",
-        "Straight Flush"
+        "Carta alta",
+        "Pareja",
+        "Doble pareja",
+        "Trío",
+        "Escalera",
+        "Color",
+        "Full",
+        "Póker",
+        "Escalera de color"
     ]
     return names[rank]
+
+
+def format_card_line(cards: list[str]) -> str:
+    return " ".join(f"`{card}`" for card in cards)
+
+
+def poker_hand_points(cards: list[str]) -> int:
+    rank, _ = poker_rank(cards)
+    rank_multiplier = [1, 2, 3, 4, 5, 6, 8, 10, 12][rank]
+    value_sum = sum(card_value(card) for card in cards)
+    return rank_multiplier * value_sum
+
+
+def roulette_wheel_display(wheel: int, color: str, choice: str) -> str:
+    wheel_emoji = {
+        "green": "🟢",
+        "red": "🔴",
+        "black": "⚫"
+    }
+    choice_emoji = {
+        "green": "🟢",
+        "red": "🔴",
+        "black": "⚫",
+        "even": "⚪",
+        "odd": "⚫"
+    }
+    return (
+        "🎡 **Ruleta** — Apuesta: "
+        f"{choice_emoji.get(choice, '🎯')} **{choice.upper()}**\n"
+        "➡️ Resultado: "
+        f"`{wheel}` {wheel_emoji.get(color, '❓')} ({color})\n"
+        "```\n"
+        " 0  1  2  3  4  5  6  7  8  9\n"
+        "10 11 12 13 14 15 16 17 18 19\n"
+        "20 21 22 23 24 25 26 27 28 29\n"
+        "30 31 32 33 34 35 36\n"
+        "```"
+    )
+
+
+def format_blackjack_state(user_cards: list[str], dealer_cards: list[str], hidden: bool = True) -> str:
+    dealer_display = f"{dealer_cards[0]} ??" if hidden else " ".join(f"`{card}`" for card in dealer_cards)
+    return (
+        f"**Tus cartas:** {format_card_line(user_cards)}\n"
+        f"**Dealer:** {dealer_display}"
+    )
+
+
+def format_poker_table(user_cards: list[str], dealer_cards: list[str], user_rank: int, dealer_rank: int) -> str:
+    return (
+        f"**Tu mano:** {format_card_line(user_cards)}\n"
+        f"**Mano banca:** {format_card_line(dealer_cards)}\n"
+        f"**Tu mano:** {hand_rank_name(user_rank)} — {poker_hand_points(user_cards)} pts\n"
+        f"**Banca:** {hand_rank_name(dealer_rank)} — {poker_hand_points(dealer_cards)} pts"
+    )
+
+
+def format_poker_points(cards: list[str]) -> int:
+    return poker_hand_points(cards)
 
 
 def roulette_color(number: int) -> str:
@@ -442,6 +501,13 @@ class Gambling(commands.Cog, name="Gambling"):
         color = roulette_color(wheel)
         win = False
         payout = 0
+        choice_labels = {
+            "red": "Rojo",
+            "black": "Negro",
+            "even": "Par",
+            "odd": "Impar",
+            "green": "Verde"
+        }
 
         if choice == "green":
             win = (wheel == 0)
@@ -456,22 +522,21 @@ class Gambling(commands.Cog, name="Gambling"):
             win = wheel % 2 == 1
             payout = bet * 2
 
+        result_desc = (
+            f"{interaction.user.mention} apostó {format_money(bet)} a **{choice_labels.get(choice, choice)}**.\n"
+            f"{roulette_wheel_display(wheel, color, choice)}\n\n"
+        )
+
         if win:
             user_data["money"] = current_money + payout
             result_title = "🎉 Ganaste la ruleta"
-            result_desc = (
-                f"{interaction.user.mention} apostó {format_money(bet)} a **{choice}** y la bola cayó en **{wheel} {color}**.\n"
-                f"Has ganado {format_money(payout)}. Saldo actual: {format_money(user_data['money'])}."
-            )
+            result_desc += f"Has ganado {format_money(payout)}. Saldo actual: {format_money(user_data['money'])}."
         else:
             user_data["money"] = max(0, current_money - bet)
             user_data["warns"] += 1
             warns = user_data["warns"]
             result_title = "💀 Perdiste la ruleta"
-            result_desc = (
-                f"{interaction.user.mention} apostó {format_money(bet)} a **{choice}** y la bola cayó en **{wheel} {color}**.\n"
-                f"Has perdido la apuesta. Saldo actual: {format_money(user_data['money'])}."
-            )
+            result_desc += f"Has perdido la apuesta. Saldo actual: {format_money(user_data['money'])}."
             if warns >= MAX_WARNS:
                 locked_until_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=LOCKOUT_HOURS)
                 user_data["locked_until"] = locked_until_dt.isoformat()
@@ -480,7 +545,6 @@ class Gambling(commands.Cog, name="Gambling"):
                     self._unlock_channel(interaction.guild_id, interaction.user.id, LOCKOUT_HOURS)
                 )
                 result_desc += f"\n🔒 Has alcanzado {warns} warns y estás baneado del gambling por {LOCKOUT_HOURS} horas."
-
         save_data(data)
         embed = discord.Embed(
             title=result_title,
@@ -634,7 +698,7 @@ class Gambling(commands.Cog, name="Gambling"):
         embed.add_field(name="Detalle", value=result_text, inline=False)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="balatro", description="Juego de rondas infinitas: sigue hasta perder o cobra tu premio.")
+    @app_commands.command(name="balatro", description="Juego del bufón: sigue ganando rondas o pierde todo.")
     @app_commands.describe(bet="Cantidad de monedas para iniciar")
     async def balatro(self, interaction: discord.Interaction, bet: int):
         data = load_data()
@@ -655,26 +719,33 @@ class Gambling(commands.Cog, name="Gambling"):
         save_data(data)
 
         class BalatroView(discord.ui.View):
-            def __init__(self, round_number: int = 1, multiplier: float = 1.0):
+            def __init__(self, round_number: int = 1, multiplier: float = 1.25):
                 super().__init__(timeout=120)
                 self.round_number = round_number
                 self.multiplier = multiplier
                 self.bet = bet
-                self.finished = False
+
+            def get_success_chance(self) -> float:
+                return max(0.15, 0.75 - 0.10 * (self.round_number - 1))
 
             def get_reward(self) -> int:
                 return int(self.bet * self.multiplier)
 
             def update_embed(self) -> discord.Embed:
+                chance = int(self.get_success_chance() * 100)
                 embed = discord.Embed(
-                    title="Balatro",
-                    description="Sigue apostando hasta que pierdas o cobra tu premio.",
+                    title="🤹 Balatro",
+                    description=(
+                        "El bufón te ofrece una nueva ronda: cada vez ganas más, pero la suerte se escapa.\n"
+                        "Pulsa Continuar para arriesgar o Cobrar para llevarte lo acumulado."
+                    ),
                     color=discord.Color.gold()
                 )
                 embed.add_field(name="Ronda", value=str(self.round_number), inline=True)
+                embed.add_field(name="Probabilidad", value=f"{chance}%", inline=True)
                 embed.add_field(name="Multiplicador", value=f"x{self.multiplier:.2f}", inline=True)
                 embed.add_field(name="Recompensa actual", value=format_money(self.get_reward()), inline=False)
-                embed.set_footer(text="Pulsa Continuar para intentar otra ronda o Cobrar para llevarte el premio.")
+                embed.set_footer(text="El riesgo aumenta cada ronda y el bufón puede quedarse con todo.")
                 return embed
 
             async def finish(self, interaction: discord.Interaction, success: bool, text: str):
@@ -688,25 +759,32 @@ class Gambling(commands.Cog, name="Gambling"):
                     user_data["money"] += payout
                     save_data(data)
                     embed = discord.Embed(title="🏆 Cobrado", description=text, color=discord.Color.green())
-                    embed.add_field(name="Ganancia", value=format_money(payout), inline=False)
+                    embed.add_field(name="Ganancia total", value=format_money(payout), inline=False)
                 else:
                     embed = discord.Embed(title="💥 Has perdido", description=text, color=discord.Color.red())
                 await interaction.response.edit_message(embed=embed, view=self)
 
             @discord.ui.button(label="Continuar", style=discord.ButtonStyle.primary)
             async def continue_round(self, interaction: discord.Interaction, button: discord.ui.Button):
-                chance = max(0.1, 0.6 - 0.05 * (self.round_number - 1))
+                chance = self.get_success_chance()
                 if random.random() < chance:
                     self.round_number += 1
-                    self.multiplier += random.uniform(0.25, 0.45)
+                    self.multiplier += random.uniform(0.4, 0.85)
                     await interaction.response.edit_message(embed=self.update_embed(), view=self)
                 else:
-                    await self.finish(interaction, False, f"Has perdido en la ronda {self.round_number}."
+                    await self.finish(
+                        interaction,
+                        False,
+                        f"El bufón se ríe y te arrebata la apuesta en la ronda {self.round_number}."
                     )
 
             @discord.ui.button(label="Cobrar", style=discord.ButtonStyle.success)
             async def cash_out(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.finish(interaction, True, f"Has cobrado después de {self.round_number} rondas.")
+                await self.finish(
+                    interaction,
+                    True,
+                    f"Has cobrado después de {self.round_number} rondas con una recompensa de {format_money(self.get_reward())}."
+                )
 
         view = BalatroView()
         await interaction.response.send_message(embed=view.update_embed(), view=view)
