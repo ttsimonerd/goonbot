@@ -11,6 +11,7 @@ DEFAULT_SETTINGS = {
     "gambling_channel_id": None,
     "gambling_lockout_hours": 24,
     "gambling_max_warns": 3,
+    "gambling_winners_channel_id": None,
     "suggestions_channel_id": None,
 }
 
@@ -57,6 +58,7 @@ class Settings(commands.Cog, name="Settings"):
 
         gambling_ch = interaction.guild.get_channel(data["gambling_channel_id"]) if data["gambling_channel_id"] else None
         suggestions_ch = interaction.guild.get_channel(data["suggestions_channel_id"]) if data["suggestions_channel_id"] else None
+        winning_ch = interaction.guild.get_channel(data["gambling_winners_channel_id"]) if data.get("gambling_winners_channel_id") else None
 
         embed = discord.Embed(
             title="⚙️ Configuración actual de Goonbot",
@@ -65,6 +67,11 @@ class Settings(commands.Cog, name="Settings"):
         embed.add_field(
             name="🎲 Canal de Gambling",
             value=gambling_ch.mention if gambling_ch else "*(auto-detect por nombre)*",
+            inline=False
+        )
+        embed.add_field(
+            name="🏆 Canal de Ganadores Diarios",
+            value=winning_ch.mention if winning_ch else "*(auto-detect por nombre)*",
             inline=False
         )
         embed.add_field(
@@ -104,6 +111,17 @@ class Settings(commands.Cog, name="Settings"):
         save_settings(data)
         await interaction.response.send_message(
             f"✅ Canal de sugerencias establecido en {channel.mention}.", ephemeral=True
+        )
+
+    # --- Set daily winners channel ---
+    @settings_group.command(name="winners_channel", description="Establece el canal para los ganadores diarios de gambling.")
+    @app_commands.describe(channel="Canal donde se publica el ranking diario")
+    async def set_winners_channel(self, interaction: Interaction, channel: discord.TextChannel):
+        data = load_settings()
+        data["gambling_winners_channel_id"] = channel.id
+        save_settings(data)
+        await interaction.response.send_message(
+            f"✅ Canal de ganadores diarios establecido en {channel.mention}.", ephemeral=True
         )
 
     # --- Set gambling lockout hours ---

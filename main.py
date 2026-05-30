@@ -298,7 +298,16 @@ async def help_command(ctx):
     embed.add_field(
         name="🎲 Gambling  `/`",
         value=(
-            "`/roulette` — Juega a la ruleta rusa (1/6 de morir)\n"
+            "`/roulette <cantidad> <red|black|even|odd|green>` — Juega a la ruleta\n"
+            "`/blackjack <cantidad>` — Juega Blackjack\n"
+            "`/poker <cantidad>` — Juega Poker rápido vs la banca\n"
+            "`/balatro <cantidad>` — Juego de rondas infinitas hasta perder o cobrar\n"
+            "`/bet <cantidad>` — Apuesta dinero para ganar o perder\n"
+            "`/balance [@usuario]` — Muestra saldo de gambling\n"
+            "`/daily` — Reclama tu premio diario\n"
+            "`/leaderboard` — Muestra el ranking de dinero\n"
+            "`/votebet create <días> <cantidad> <predicción>` — Crea una apuesta personalizada\n"
+            "`/votebet status` — Consulta tus apuestas activas\n"
             "`/gambling_warns [@usuario]` — Consulta warns de gambling\n"
             "`/gambling_pardon @usuario` — *(Admin)* Perdona warns"
         ),
@@ -333,6 +342,7 @@ async def help_command(ctx):
         value=(
             "`/settings view` — Ver configuración actual\n"
             "`/settings gambling_channel #canal` — Cambiar canal de gambling\n"
+            "`/settings winners_channel #canal` — Cambiar canal de ganadores diarios\n"
             "`/settings suggestions_channel #canal` — Cambiar canal de sugerencias\n"
             "`/settings lockout_hours <n>` — Horas de ban por gambling\n"
             "`/settings max_warns <n>` — Warns antes del ban"
