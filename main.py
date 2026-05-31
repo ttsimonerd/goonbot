@@ -26,7 +26,8 @@ class GoonBot(commands.Bot):
             "cogs.gambling",
             "cogs.suggestions",
             "cogs.aitexts",
-            "cogs.settings"
+            "cogs.settings",
+            "cogs.maintenance"
         ]
         for ext in extensions:
             try:
