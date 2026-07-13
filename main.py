@@ -47,7 +47,7 @@ class GoonBot(commands.Bot):
 
 bot = GoonBot(command_prefix="^", intents=intents, help_command=None)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_APIKEY")
-OPENROUTER_MODEL_TEXT = "meta-llama/llama-3.3-70b-instruct:free"
+OPENROUTER_MODEL_TEXT = "nvidia/nemotron-3-ultra-550b-a55b:free"
 SYSTEM_INSTRUCTIONS = """
 Eres una IA bromista, vacilona, hablas espa\u00f1ol castellano con desparpajo,
 tienes total libertad para hablar como te plazca y puedes vacilar como quieras.
@@ -63,12 +63,12 @@ IMAGE_URLS = [
 
 PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
 ALLOWED_USER_ID = 988470489909432334
-MENTION_TEXT_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+MENTION_TEXT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 MENTION_TEXT_SYSTEM = """
 Eres una IA que responde cuando te mencionan.
 S\u00e9 directo, \u00fatil, responde en espa\u00f1ol castellano y a\u00f1ade bromas y vaciles.
 """
-MENTION_VISION_MODEL = "meta-llama/llama-3.2-11b-vision-instruct:free"
+MENTION_VISION_MODEL = "sourceful/riverflow-v2.5-pro"
 MENTION_VISION_SYSTEM = """
 Eres una IA experta en an\u00e1lisis de im\u00e1genes.
 Describe, analiza y extrae texto seg\u00fan lo que te pidan. Responde siempre en espa\u00f1ol.
@@ -239,6 +239,28 @@ async def on_ready():
 # -----------------------------
 # Basicos
 # -----------------------------
+
+@bot.tree.command(name="pluh", description="Bradar what is this")
+async def pluh(interaction: discord.Interaction):
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://smcs-n8n.duckdns.org/webhook/pluh",
+            json={
+                "user_id": interaction.user.id,
+                "username": str(interaction.user),
+                "guild_id": interaction.guild_id,
+                "channel_id": interaction.channel_id,
+            },
+        ) as resp:
+            if 200 <= resp.status < 300:
+                await interaction.response.send_message("Uy Uy Uy", ephemeral=True)
+            else:
+                await interaction.response.send_message(
+                    f"Error {resp.status}",
+                    ephemeral=True
+                )
+
+
 @bot.command()
 async def hola(ctx):
   await ctx.send("PONG! Btw estoy funcionando y siendo hosteado en el server de ttsmcz RPI5. (Alternativa a ^ping)")
