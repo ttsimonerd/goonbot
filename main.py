@@ -9,6 +9,7 @@ import aiohttp
 import base64
 from probabilities import roll_with_limit
 import requests
+import db
 
 intents = discord.Intents.all()
 intents.message_content = True
@@ -28,7 +29,8 @@ class GoonBot(commands.Bot):
       "cogs.aitexts",
       "cogs.settings",
       "cogs.maintenance",
-      "cogs.clickup_logger"
+      "cogs.clickup_logger",
+      "cogs.admin"
     ]
     for ext in extensions:
       try:
@@ -354,10 +356,12 @@ async def help_command(ctx):
   embed.set_footer(text="Goonbot \u2022 Hosteado por ttsmcz \u2022 Powered by Co-Co Pilot \u2022 Texto generado por IA porque me sale de la polla")
   await ctx.send(embed=embed)
 
+REDEPLOY_PASSWORD = os.getenv("REDEPLOY_PASSWORD")
+
 @bot.tree.command(name="redeploy", description="Redeploy webhook. Dev only!")
 @app_commands.describe(password="OAuth")
 async def sendwebhook(interaction: discord.Interaction, password: str):
-  if password != "goontime67":
+  if not REDEPLOY_PASSWORD or password != REDEPLOY_PASSWORD:
     await interaction.response.send_message("Access denied.", ephemeral=True)
     return
   try:
@@ -368,50 +372,27 @@ async def sendwebhook(interaction: discord.Interaction, password: str):
     print(f"Error sending webhook: {e}")
     await interaction.response.send_message("Failed to send request.", ephemeral=True)
 
-@bot.command()
-async def los_horrores(ctx, password: str):
-  if ctx.author.id != ALLOWED_USER_ID:
-    await ctx.send("\u274c No estas autorizado, nigga.")
+async def main():
+  token = os.getenv("DISCORD_TOKEN")
+  if not token:
+    print("Warning: DISCORD_TOKEN is missing or not set!")
     return
-  NUKE_PASSWORD = os.getenv("NUKE_PASSWORD")
-  if not NUKE_PASSWORD:
-    await ctx.send("\u274c The dev is missing something... \ud83d\udc40")
-    return
-  if password != NUKE_PASSWORD:
-    await ctx.send("\u274c Nuh uh")
-    return
-  await ctx.send("\u26a0\ufe0f **Oh oh oh, not gud** \u26a0\ufe0f\nTypeshit:")
-  def check(m):
-    return m.author == ctx.author and m.content == "shit" and m.channel == ctx.channel
-  try:
-    await bot.wait_for("message", timeout=30.0, check=check)
-  except asyncio.TimeoutError:
-    await ctx.send("\u274c Cancelling...")
-    return
-  guild = ctx.guild
-  for channel in guild.text_channels:
-    try:
-      await channel.send("\ud83d\udd34 **Miguel ijo puta corrupto** \ud83d\udd34\nDestroying server...")
-    except:
-      pass
-  everyone_role = guild.default_role
-  try:
-    await everyone_role.edit(permissions=discord.Permissions.none())
-  except:
-    pass
-  for channel in guild.channels:
-    try:
-      await channel.delete()
-    except:
-      pass
-  try:
-    final_channel = await guild.create_text_channel("final-message")
-    await final_channel.send(f"Hola! Si estas leyendo esto, es porque a {ctx.author.mention} se le ha ido completamente la cabeza! Goodbye. \ud83d\udc40")
-  except:
-    pass
 
-token = os.getenv("DISCORD_TOKEN")
-if token:
-  bot.run(token)
-else:
-  print("Warning: DISCORD_TOKEN is missing or not set!")
+  await db.init_db()
+  print("✅ Database initialized")
+
+  from dashboard.app import create_app
+  import uvicorn
+
+  port = int(os.getenv("PORT", 8000))
+  config = uvicorn.Config(create_app(bot), host="0.0.0.0", port=port, log_level="info")
+  server = uvicorn.Server(config)
+
+  async with bot:
+    await asyncio.gather(
+      bot.start(token),
+      server.serve(),
+    )
+
+if __name__ == "__main__":
+  asyncio.run(main())
