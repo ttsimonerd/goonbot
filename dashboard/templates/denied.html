@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Acceso denegado — GoonBot{% endblock %}
+{% block content %}
+<div class="center-card">
+  <h1>Acceso denegado</h1>
+  <p class="subtitle">No eres miembro de {{ guild_name }}.</p>
+  <a href="/login" class="btn btn-secondary">Volver a intentar</a>
+</div>
+{% endblock %}

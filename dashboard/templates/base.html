@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}GoonBot Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="brand">GoonBot</a>
+    {% if user %}
+      <div class="nav-user">
+        <img src="{{ user.avatar_url }}" alt="" class="avatar-small">
+        <span>{{ user.username }}</span>
+        {% if is_admin %}<a href="/admin" class="nav-link">Admin</a>{% endif %}
+        <a href="/logout" class="nav-link">Salir</a>
+      </div>
+    {% endif %}
+  </nav>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

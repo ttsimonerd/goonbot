@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — GoonBot{% endblock %}
+{% block content %}
+
+{% set error = request.query_params.get('error') %}
+{% set sent = request.query_params.get('sent') %}
+{% if sent %}
+  <div class="banner banner-success">Mensaje enviado correctamente.</div>
+{% endif %}
+{% if error %}
+  <div class="banner banner-error">
+    {% if error == 'limit' %}Ya usaste tus 3 mensajes de hoy. Vuelve mañana.
+    {% elif error == 'disabled' %}El envío de mensajes está desactivado temporalmente.
+    {% elif error == 'invalid' %}El mensaje está vacío o es demasiado largo.
+    {% elif error == 'csrf' %}Sesión expirada, intenta de nuevo.
+    {% else %}No se pudo enviar el mensaje.
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="grid">
+  <div class="card profile-card">
+    <img src="{{ user.avatar_url }}" alt="" class="avatar-large">
+    <h2>{{ user.username }}</h2>
+    <div class="stat">
+      <span class="stat-value">💰 {{ "{:,}".format(coins) }}</span>
+      <span class="stat-label">coins</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value">{{ messages_remaining }}/3</span>
+      <span class="stat-label">mensajes restantes hoy</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Enviar mensaje</h3>
+    {% if not sending_enabled %}
+      <p class="muted">El envío está desactivado por el admin ahora mismo.</p>
+    {% elif messages_remaining <= 0 %}
+      <p class="muted">No te quedan mensajes hoy.</p>
+    {% elif not allowed_channels %}
+      <p class="muted">No hay canales configurados todavía.</p>
+    {% else %}
+      <form method="post" action="/send" class="send-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="channel_key">Canal</label>
+        <select name="channel_key" id="channel_key" required>
+          {% for ch in allowed_channels %}
+            <option value="{{ ch.channel_key }}">{{ ch.label }}</option>
+          {% endfor %}
+        </select>
+        <label for="content">Mensaje</label>
+        <textarea name="content" id="content" maxlength="500" rows="4" required></textarea>
+        <button type="submit" class="btn btn-primary">Enviar</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Mensajes recientes</h3>
+    {% if recent_messages %}
+      <ul class="message-list">
+        {% for m in recent_messages %}
+          <li><span class="msg-channel">#{{ m.channel_key }}</span> {{ m.content }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">Todavía no has enviado nada.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

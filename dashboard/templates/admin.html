@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Admin — GoonBot{% endblock %}
+{% block content %}
+
+{% set error = request.query_params.get('error') %}
+{% if error == 'invalid_channel_form' %}
+  <div class="banner banner-error">Revisa el ID del canal (solo números) y que todos los campos estén rellenos.</div>
+{% endif %}
+
+<div class="grid">
+  <div class="card">
+    <h3>Envío de mensajes</h3>
+    <p class="muted">Estado actual: {% if sending_enabled %}<span class="pill pill-on">Activado</span>{% else %}<span class="pill pill-off">Desactivado</span>{% endif %}</p>
+    <form method="post" action="/admin/kill-switch">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="enabled" value="{{ 'false' if sending_enabled else 'true' }}">
+      <button type="submit" class="btn {{ 'btn-danger' if sending_enabled else 'btn-primary' }}">
+        {{ 'Desactivar envío' if sending_enabled else 'Activar envío' }}
+      </button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Canales permitidos</h3>
+    <ul class="channel-list">
+      {% for ch in channels %}
+        <li>
+          <span>{{ ch.label }} <span class="muted">(#{{ ch.channel_key }} → {{ ch.channel_id }})</span></span>
+          <form method="post" action="/admin/channels/remove" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="channel_key" value="{{ ch.channel_key }}">
+            <button type="submit" class="btn-link btn-danger-link">Quitar</button>
+          </form>
+        </li>
+      {% else %}
+        <li class="muted">Ningún canal configurado todavía.</li>
+      {% endfor %}
+    </ul>
+
+    <form method="post" action="/admin/channels/add" class="send-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="channel_key">Clave interna (sin espacios, ej. "general")</label>
+      <input type="text" name="channel_key" id="channel_key" required pattern="[a-zA-Z0-9_\-]+">
+      <label for="channel_id">ID del canal de Discord</label>
+      <input type="text" name="channel_id" id="channel_id" required pattern="[0-9]+">
+      <label for="label">Nombre visible para los usuarios</label>
+      <input type="text" name="label" id="label" required>
+      <button type="submit" class="btn btn-primary">Añadir canal</button>
+    </form>
+  </div>
+
+  <div class="card wide">
+    <h3>Registro de mensajes enviados</h3>
+    {% if logs %}
+      <table class="log-table">
+        <thead>
+          <tr><th>Usuario</th><th>Canal</th><th>Mensaje</th><th>Fecha (UTC)</th></tr>
+        </thead>
+        <tbody>
+          {% for log in logs %}
+          <tr>
+            <td>{{ log.username }}</td>
+            <td>#{{ log.channel_key }}</td>
+            <td>{{ log.content }}</td>
+            <td>{{ log.sent_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">Todavía no hay mensajes registrados.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
