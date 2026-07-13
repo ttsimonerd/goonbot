@@ -1,21 +1,8 @@
-import os
-import json
 import discord
 from discord import app_commands, ui, Interaction
 from discord.ext import commands
 
-SETTINGS_FILE = "settings.json"
-
-
-def load_settings() -> dict:
-    defaults = {"suggestions_channel_id": None}
-    if not os.path.exists(SETTINGS_FILE):
-        return defaults
-    with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return defaults
+import db
 
 
 # ---------------------
@@ -42,7 +29,7 @@ class SuggestionModal(ui.Modal, title="💡 Nueva Sugerencia"):
 
     async def on_submit(self, interaction: Interaction):
         guild = interaction.guild
-        settings = load_settings()
+        settings = await db.get_settings(guild.id)
         ch_id = settings.get("suggestions_channel_id")
 
         # Try to get channel by ID first, then fallback to name auto-detect

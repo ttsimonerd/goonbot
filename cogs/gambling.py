@@ -1,107 +1,21 @@
-import os
-import json
 import random
 import asyncio
 import datetime
 import uuid
 from collections import Counter
-from typing import Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-# ---------------------
-# Data file
-# ---------------------
-DATA_FILE = "gambling_data.json"
-SETTINGS_FILE = "settings.json"
+import db
 
 
 # ---------------------
-# Helpers
+# Pure helpers (no state) — unchanged from the original
 # ---------------------
-def load_settings() -> dict:
-    defaults = {
-        "gambling_channel_id": None,
-        "gambling_lockout_hours": 24,
-        "gambling_max_warns": 3,
-        "gambling_winners_channel_id": None,
-    }
-    if not os.path.exists(SETTINGS_FILE):
-        return defaults
-    with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-            for k, v in defaults.items():
-                if k not in data:
-                    data[k] = v
-            return data
-        except json.JSONDecodeError:
-            return defaults
-
-
-def load_data() -> dict:
-    if not os.path.exists(DATA_FILE):
-        return {}
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return {}
-
-
-def save_data(data: dict):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
-
-def get_user_data(data: dict, guild_id: int, user_id: int) -> dict:
-    gid = str(guild_id)
-    uid = str(user_id)
-    if gid not in data:
-        data[gid] = {}
-    if uid not in data[gid]:
-        data[gid][uid] = {
-            "warns": 0,
-            "locked_until": None,
-            "money": 100,
-            "daily_claimed": None,
-        }
-    else:
-        user = data[gid][uid]
-        if "money" not in user:
-            user["money"] = 100
-        if "daily_claimed" not in user:
-            user["daily_claimed"] = None
-    return data[gid][uid]
-
-
-def get_top_balances(data: dict, guild: discord.Guild, limit: int = 5) -> list[tuple[str, int]]:
-    gid = str(guild.id)
-    if gid not in data:
-        return []
-    all_users = []
-    for uid, info in data[gid].items():
-        if uid.startswith("_"):
-            continue
-        balance = info.get("money", 100)
-        all_users.append((uid, balance))
-    all_users.sort(key=lambda x: x[1], reverse=True)
-    return all_users[:limit]
-
-
 def format_money(amount: int) -> str:
     return f"{amount:,} coins"
-
-
-def get_guild_predictions(data: dict, guild_id: int) -> dict:
-    gid = str(guild_id)
-    if gid not in data:
-        data[gid] = {}
-    if "_predictions" not in data[gid]:
-        data[gid]["_predictions"] = {}
-    return data[gid]["_predictions"]
 
 
 def build_deck() -> list[str]:
@@ -168,15 +82,8 @@ def poker_rank(cards: list[str]) -> tuple[int, list[int]]:
 
 def hand_rank_name(rank: int) -> str:
     names = [
-        "Carta alta",
-        "Pareja",
-        "Doble pareja",
-        "Trío",
-        "Escalera",
-        "Color",
-        "Full",
-        "Póker",
-        "Escalera de color"
+        "Carta alta", "Pareja", "Doble pareja", "Trío", "Escalera",
+        "Color", "Full", "Póker", "Escalera de color"
     ]
     return names[rank]
 
@@ -193,18 +100,8 @@ def poker_hand_points(cards: list[str]) -> int:
 
 
 def roulette_wheel_display(wheel: int, color: str, choice: str) -> str:
-    wheel_emoji = {
-        "green": "🟢",
-        "red": "🔴",
-        "black": "⚫"
-    }
-    choice_emoji = {
-        "green": "🟢",
-        "red": "🔴",
-        "black": "⚫",
-        "even": "⚪",
-        "odd": "⚫"
-    }
+    wheel_emoji = {"green": "🟢", "red": "🔴", "black": "⚫"}
+    choice_emoji = {"green": "🟢", "red": "🔴", "black": "⚫", "even": "⚪", "odd": "⚫"}
     return (
         "🎡 **Ruleta** — Apuesta: "
         f"{choice_emoji.get(choice, '🎯')} **{choice.upper()}**\n"
@@ -219,33 +116,10 @@ def roulette_wheel_display(wheel: int, color: str, choice: str) -> str:
     )
 
 
-def format_blackjack_state(user_cards: list[str], dealer_cards: list[str], hidden: bool = True) -> str:
-    dealer_display = f"{dealer_cards[0]} ??" if hidden else " ".join(f"`{card}`" for card in dealer_cards)
-    return (
-        f"**Tus cartas:** {format_card_line(user_cards)}\n"
-        f"**Dealer:** {dealer_display}"
-    )
-
-
-def format_poker_table(user_cards: list[str], dealer_cards: list[str], user_rank: int, dealer_rank: int) -> str:
-    return (
-        f"**Tu mano:** {format_card_line(user_cards)}\n"
-        f"**Mano banca:** {format_card_line(dealer_cards)}\n"
-        f"**Tu mano:** {hand_rank_name(user_rank)} — {poker_hand_points(user_cards)} pts\n"
-        f"**Banca:** {hand_rank_name(dealer_rank)} — {poker_hand_points(dealer_cards)} pts"
-    )
-
-
-def format_poker_points(cards: list[str]) -> int:
-    return poker_hand_points(cards)
-
-
 def roulette_color(number: int) -> str:
     if number == 0:
         return "green"
-    red_numbers = {
-        1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36
-    }
+    red_numbers = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
     return "red" if number in red_numbers else "black"
 
 
@@ -273,22 +147,21 @@ class Gambling(commands.Cog, name="Gambling"):
         self.bot.loop.create_task(self._daily_winners_loop())
         self.bot.loop.create_task(self._prediction_resolution_loop())
 
-    def _get_gambling_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+    async def _get_gambling_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
         """Get gambling channel from settings (by ID) or auto-detect by name."""
-        settings = load_settings()
+        settings = await db.get_settings(guild.id)
         ch_id = settings.get("gambling_channel_id")
         if ch_id:
             ch = guild.get_channel(ch_id)
             if ch:
                 return ch
-        # Fallback: auto-detect by name
         for ch in guild.text_channels:
             if "gambling" in ch.name.lower():
                 return ch
         return None
 
-    def _get_gambling_winners_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
-        settings = load_settings()
+    async def _get_gambling_winners_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        settings = await db.get_settings(guild.id)
         ch_id = settings.get("gambling_winners_channel_id")
         if ch_id:
             ch = guild.get_channel(ch_id)
@@ -301,12 +174,11 @@ class Gambling(commands.Cog, name="Gambling"):
         return None
 
     async def _post_daily_winners(self):
-        data = load_data()
         for guild in self.bot.guilds:
-            channel = self._get_gambling_winners_channel(guild)
+            channel = await self._get_gambling_winners_channel(guild)
             if channel is None:
                 continue
-            top = get_top_balances(data, guild, limit=5)
+            top = await db.get_top_balances(guild.id, limit=5)
             if not top:
                 continue
             lines = []
@@ -327,74 +199,75 @@ class Gambling(commands.Cog, name="Gambling"):
                 print(f"[Gambling] Failed to post daily winners in {guild.name}: {e}")
 
     async def _resolve_due_predictions(self):
-        data = load_data()
         now = datetime.datetime.utcnow()
         for guild in self.bot.guilds:
-            predictions = get_guild_predictions(data, guild.id)
-            channel = self._get_gambling_channel(guild) or self._get_gambling_winners_channel(guild)
-            for pid, pred in list(predictions.items()):
-                if pred.get("settled"):
-                    continue
+            predictions = await db.get_predictions(guild.id, include_settled=False)
+            channel = await self._get_gambling_channel(guild) or await self._get_gambling_winners_channel(guild)
+            for pred in predictions:
                 resolve_at = datetime.datetime.fromisoformat(pred["resolve_at"])
-                if now >= resolve_at:
-                    creator_id = int(pred["creator_id"])
-                    amount = pred["amount"]
-                    multiplier = pred["multiplier"]
-                    poll_channel = guild.get_channel(pred.get("channel_id")) if pred.get("channel_id") else None
-                    poll_message = None
-                    yes_votes = 0
-                    no_votes = 0
-                    poll_result = None
-                    if poll_channel and pred.get("message_id"):
-                        try:
-                            poll_message = await poll_channel.fetch_message(pred["message_id"])
-                            for reaction in poll_message.reactions:
-                                emoji = str(reaction.emoji)
-                                if emoji == "✅":
-                                    yes_votes = max(0, reaction.count - 1)
-                                elif emoji == "❌":
-                                    no_votes = max(0, reaction.count - 1)
-                            if yes_votes > no_votes:
-                                poll_result = True
-                            elif no_votes > yes_votes:
-                                poll_result = False
-                        except Exception:
-                            poll_result = None
+                if now < resolve_at:
+                    continue
 
-                    if poll_result is None:
-                        success = random.random() < pred["success_chance"]
-                        poll_basis = "Resolución aleatoria (sin resultado claro de la votación)."
-                    else:
-                        success = poll_result
-                        poll_basis = f"Resolución basada en la votación: ✅ {yes_votes} vs ❌ {no_votes}."
+                creator_id = int(pred["creator_id"])
+                amount = pred["amount"]
+                multiplier = pred["multiplier"]
+                poll_channel = guild.get_channel(pred["channel_id"]) if pred["channel_id"] else None
+                poll_message = None
+                yes_votes = 0
+                no_votes = 0
+                poll_result = None
+                if poll_channel and pred["message_id"]:
+                    try:
+                        poll_message = await poll_channel.fetch_message(pred["message_id"])
+                        for reaction in poll_message.reactions:
+                            emoji = str(reaction.emoji)
+                            if emoji == "✅":
+                                yes_votes = max(0, reaction.count - 1)
+                            elif emoji == "❌":
+                                no_votes = max(0, reaction.count - 1)
+                        if yes_votes > no_votes:
+                            poll_result = True
+                        elif no_votes > yes_votes:
+                            poll_result = False
+                    except Exception:
+                        poll_result = None
 
-                    user_data = get_user_data(data, guild.id, creator_id)
-                    if success:
-                        payout = int(amount * multiplier)
-                        user_data["money"] += payout
-                        result_text = f"✅ {guild.get_member(creator_id).mention if guild.get_member(creator_id) else f'<@{creator_id}>'} ganó {format_money(payout)} en la predicción."
-                    else:
-                        payout = 0
-                        result_text = f"❌ {guild.get_member(creator_id).mention if guild.get_member(creator_id) else f'<@{creator_id}>'} perdió la predicción y no recuperó su apuesta."
-                    pred["settled"] = True
-                    pred["result"] = "win" if success else "lose"
-                    save_data(data)
-                    if channel:
-                        embed = discord.Embed(
-                            title="📣 Predicción resuelta",
-                            description=result_text,
-                            color=discord.Color.blurple(),
-                            timestamp=now
-                        )
-                        embed.add_field(name="Predicción", value=pred["description"], inline=False)
-                        embed.add_field(name="Votos", value=f"✅ {yes_votes} — ❌ {no_votes}", inline=True)
-                        embed.add_field(name="Resultado", value="✅ Ganó" if success else "❌ Perdió", inline=True)
-                        embed.add_field(name="Multiplicador", value=f"x{multiplier:.2f}", inline=True)
-                        embed.add_field(name="Base", value=poll_basis, inline=False)
-                        try:
-                            await channel.send(embed=embed)
-                        except Exception as e:
-                            print(f"[Gambling] Failed to post prediction resolution in {guild.name}: {e}")
+                if poll_result is None:
+                    success = random.random() < pred["success_chance"]
+                    poll_basis = "Resolución aleatoria (sin resultado claro de la votación)."
+                else:
+                    success = poll_result
+                    poll_basis = f"Resolución basada en la votación: ✅ {yes_votes} vs ❌ {no_votes}."
+
+                member = guild.get_member(creator_id)
+                mention = member.mention if member else f"<@{creator_id}>"
+                if success:
+                    payout = int(amount * multiplier)
+                    await db.add_money(guild.id, creator_id, payout)
+                    result_text = f"✅ {mention} ganó {format_money(payout)} en la predicción."
+                else:
+                    result_text = f"❌ {mention} perdió la predicción y no recuperó su apuesta."
+
+                await db.update_prediction(
+                    guild.id, pred["bet_id"], settled=1, result="win" if success else "lose"
+                )
+
+                if channel:
+                    embed = discord.Embed(
+                        title="📣 Predicción resuelta",
+                        description=result_text,
+                        color=discord.Color.blurple(),
+                        timestamp=now
+                    )
+                    embed.add_field(name="Predicción", value=pred["description"], inline=False)
+                    embed.add_field(name="Votos", value=f"✅ {yes_votes} — ❌ {no_votes}", inline=True)
+                    embed.add_field(name="Resultado", value="✅ Ganó" if success else "❌ Perdió", inline=True)
+                    embed.add_field(name="Multiplicador", value=f"x{multiplier:.2f}", inline=True)
+                    embed.add_field(name="Base", value=poll_basis, inline=False)
+                    try:
+                        await channel.send(embed=embed)
+                    except Exception as e:
+                        print(f"[Gambling] Failed to post prediction resolution in {guild.name}: {e}")
 
     async def _prediction_resolution_loop(self):
         await self.bot.wait_until_ready()
@@ -414,15 +287,13 @@ class Gambling(commands.Cog, name="Gambling"):
 
     async def _lock_channel(self, guild: discord.Guild, user: discord.Member):
         """Removes the user's permission to send messages in the gambling channel."""
-        settings = load_settings()
+        settings = await db.get_settings(guild.id)
         max_warns = settings.get("gambling_max_warns", 3)
-        ch = self._get_gambling_channel(guild)
+        ch = await self._get_gambling_channel(guild)
         if ch is None:
             return
         await ch.set_permissions(
-            user,
-            send_messages=False,
-            reason=f"Gambling ban: {max_warns} warns reached."
+            user, send_messages=False, reason=f"Gambling ban: {max_warns} warns reached."
         )
 
     async def _unlock_channel(self, guild_id: int, user_id: int, lockout_hours: int):
@@ -431,32 +302,21 @@ class Gambling(commands.Cog, name="Gambling"):
         guild = self.bot.get_guild(guild_id)
         if guild is None:
             return
-        ch = self._get_gambling_channel(guild)
+        ch = await self._get_gambling_channel(guild)
         member = guild.get_member(user_id)
         if ch and member:
             await ch.set_permissions(member, send_messages=None, reason="Gambling ban expired.")
-        # Clear warns and lockout in data
-        data = load_data()
-        user_data = get_user_data(data, guild_id, user_id)
-        user_data["warns"] = 0
-        user_data["locked_until"] = None
-        save_data(data)
+        await db.update_user(guild_id, user_id, warns=0, locked_until=None)
 
     @app_commands.command(name="roulette", description="Apuesta en la ruleta y gana según tu elección.")
-    @app_commands.describe(
-        bet="Cantidad de monedas a apostar",
-        choice="Apuesta a red, black, even, odd o green"
-    )
+    @app_commands.describe(bet="Cantidad de monedas a apostar", choice="Apuesta a red, black, even, odd o green")
     async def roulette(self, interaction: discord.Interaction, bet: int, choice: str | None = None):
-        settings = load_settings()
+        settings = await db.get_settings(interaction.guild_id)
         LOCKOUT_HOURS = settings.get("gambling_lockout_hours", 24)
         MAX_WARNS = settings.get("gambling_max_warns", 3)
 
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, interaction.user.id)
-
-        # Check if locked
-        locked_until = user_data.get("locked_until")
+        user = await db.get_user(interaction.guild_id, interaction.user.id)
+        locked_until = user["locked_until"]
         if locked_until:
             unlock_dt = datetime.datetime.fromisoformat(locked_until)
             if datetime.datetime.utcnow() < unlock_dt:
@@ -469,19 +329,16 @@ class Gambling(commands.Cog, name="Gambling"):
                 )
                 return
             else:
-                user_data["warns"] = 0
-                user_data["locked_until"] = None
+                await db.update_user(interaction.guild_id, interaction.user.id, warns=0, locked_until=None)
+                user["warns"] = 0
 
-        current_money = user_data.get("money", 100)
+        current_money = user["money"]
         if bet <= 0:
-            await interaction.response.send_message(
-                "❌ Debes apostar una cantidad positiva.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ Debes apostar una cantidad positiva.", ephemeral=True)
             return
         if bet > current_money:
             await interaction.response.send_message(
-                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.",
-                ephemeral=True
+                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.", ephemeral=True
             )
             return
 
@@ -490,8 +347,7 @@ class Gambling(commands.Cog, name="Gambling"):
             choice = choice.lower().strip()
             if choice not in valid_choices:
                 await interaction.response.send_message(
-                    "❌ Opción inválida. Usa red, black, even, odd o green.",
-                    ephemeral=True
+                    "❌ Opción inválida. Usa red, black, even, odd o green.", ephemeral=True
                 )
                 return
         else:
@@ -501,13 +357,7 @@ class Gambling(commands.Cog, name="Gambling"):
         color = roulette_color(wheel)
         win = False
         payout = 0
-        choice_labels = {
-            "red": "Rojo",
-            "black": "Negro",
-            "even": "Par",
-            "odd": "Impar",
-            "green": "Verde"
-        }
+        choice_labels = {"red": "Rojo", "black": "Negro", "even": "Par", "odd": "Impar", "green": "Verde"}
 
         if choice == "green":
             win = (wheel == 0)
@@ -528,27 +378,26 @@ class Gambling(commands.Cog, name="Gambling"):
         )
 
         if win:
-            user_data["money"] = current_money + payout
+            new_balance = await db.add_money(interaction.guild_id, interaction.user.id, payout)
             result_title = "🎉 Ganaste la ruleta"
-            result_desc += f"Has ganado {format_money(payout)}. Saldo actual: {format_money(user_data['money'])}."
+            result_desc += f"Has ganado {format_money(payout)}. Saldo actual: {format_money(new_balance)}."
         else:
-            user_data["money"] = max(0, current_money - bet)
-            user_data["warns"] += 1
-            warns = user_data["warns"]
+            new_balance = await db.add_money(interaction.guild_id, interaction.user.id, -bet)
+            new_warns = user["warns"] + 1
+            await db.update_user(interaction.guild_id, interaction.user.id, warns=new_warns)
             result_title = "💀 Perdiste la ruleta"
-            result_desc += f"Has perdido la apuesta. Saldo actual: {format_money(user_data['money'])}."
-            if warns >= MAX_WARNS:
+            result_desc += f"Has perdido la apuesta. Saldo actual: {format_money(new_balance)}."
+            if new_warns >= MAX_WARNS:
                 locked_until_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=LOCKOUT_HOURS)
-                user_data["locked_until"] = locked_until_dt.isoformat()
+                await db.update_user(interaction.guild_id, interaction.user.id, locked_until=locked_until_dt.isoformat())
                 await self._lock_channel(interaction.guild, interaction.user)
                 self.bot.loop.create_task(
                     self._unlock_channel(interaction.guild_id, interaction.user.id, LOCKOUT_HOURS)
                 )
-                result_desc += f"\n🔒 Has alcanzado {warns} warns y estás baneado del gambling por {LOCKOUT_HOURS} horas."
-        save_data(data)
+                result_desc += f"\n🔒 Has alcanzado {new_warns} warns y estás baneado del gambling por {LOCKOUT_HOURS} horas."
+
         embed = discord.Embed(
-            title=result_title,
-            description=result_desc,
+            title=result_title, description=result_desc,
             color=discord.Color.green() if win else discord.Color.red()
         )
         await interaction.response.send_message(embed=embed)
@@ -556,27 +405,25 @@ class Gambling(commands.Cog, name="Gambling"):
     @app_commands.command(name="blackjack", description="Juega una partida rápida de Blackjack.")
     @app_commands.describe(bet="Cantidad de monedas a apostar")
     async def blackjack(self, interaction: discord.Interaction, bet: int):
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, interaction.user.id)
-        current_money = user_data.get("money", 100)
+        user = await db.get_user(interaction.guild_id, interaction.user.id)
+        current_money = user["money"]
 
         if bet <= 0:
             await interaction.response.send_message("❌ Debes apostar una cantidad positiva.", ephemeral=True)
             return
         if bet > current_money:
             await interaction.response.send_message(
-                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.",
-                ephemeral=True
+                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.", ephemeral=True
             )
             return
 
-        user_data["money"] = current_money - bet
-        save_data(data)
+        await db.add_money(interaction.guild_id, interaction.user.id, -bet)
 
         deck = build_deck()
         random.shuffle(deck)
         user_cards = [deck.pop(), deck.pop()]
         dealer_cards = [deck.pop(), deck.pop()]
+        guild_id = interaction.guild_id
 
         class BlackjackView(discord.ui.View):
             def __init__(self, author_id: int):
@@ -585,7 +432,6 @@ class Gambling(commands.Cog, name="Gambling"):
                 self.user_cards = user_cards
                 self.dealer_cards = dealer_cards
                 self.deck = deck
-                self.finished = False
 
             def update_embed(self, embed: discord.Embed):
                 embed.clear_fields()
@@ -629,10 +475,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 user_total = best_blackjack_total(self.user_cards)
                 if dealer_total > 21 or user_total > dealer_total:
                     winnings = int(bet * 2)
-                    data = load_data()
-                    user_data = get_user_data(data, interaction.guild_id, interaction.user.id)
-                    user_data["money"] += winnings
-                    save_data(data)
+                    await db.add_money(guild_id, interaction.user.id, winnings)
                     await self.finish(interaction, "🎉 Blackjack ganado", f"Tu total: {user_total}. Dealer: {dealer_total}. Has ganado {format_money(winnings)}.", True)
                 else:
                     await self.finish(interaction, "😢 Blackjack perdido", f"Tu total: {user_total}. Dealer: {dealer_total}. Pierdes.", False)
@@ -645,22 +488,19 @@ class Gambling(commands.Cog, name="Gambling"):
     @app_commands.command(name="poker", description="Juega una partida rápida de Poker contra la banca.")
     @app_commands.describe(bet="Cantidad de monedas a apostar")
     async def poker(self, interaction: discord.Interaction, bet: int):
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, interaction.user.id)
-        current_money = user_data.get("money", 100)
+        user = await db.get_user(interaction.guild_id, interaction.user.id)
+        current_money = user["money"]
 
         if bet <= 0:
             await interaction.response.send_message("❌ Debes apostar una cantidad positiva.", ephemeral=True)
             return
         if bet > current_money:
             await interaction.response.send_message(
-                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.",
-                ephemeral=True
+                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.", ephemeral=True
             )
             return
 
-        user_data["money"] = current_money - bet
-        save_data(data)
+        await db.add_money(interaction.guild_id, interaction.user.id, -bet)
 
         deck = build_deck()
         random.shuffle(deck)
@@ -669,8 +509,8 @@ class Gambling(commands.Cog, name="Gambling"):
         user_rank, user_tiebreak = poker_rank(user_cards)
         dealer_rank, dealer_tiebreak = poker_rank(dealer_cards)
 
-        result = "Empate"
         win = False
+        result = "Empate"
         if user_rank > dealer_rank or (user_rank == dealer_rank and user_tiebreak > dealer_tiebreak):
             result = "Ganaste"
             win = True
@@ -678,13 +518,11 @@ class Gambling(commands.Cog, name="Gambling"):
             result = "Perdiste"
         else:
             result = "Empate"
-            user_data["money"] += bet
-            save_data(data)
+            await db.add_money(interaction.guild_id, interaction.user.id, bet)
 
         if win:
             payout = int(bet * 2.5)
-            user_data["money"] += payout
-            save_data(data)
+            await db.add_money(interaction.guild_id, interaction.user.id, payout)
             result_text = f"Has ganado {format_money(payout)}."
         elif result == "Empate":
             result_text = "Empate, recuperas tu apuesta."
@@ -701,22 +539,20 @@ class Gambling(commands.Cog, name="Gambling"):
     @app_commands.command(name="balatro", description="Juego del bufón: sigue ganando rondas o pierde todo.")
     @app_commands.describe(bet="Cantidad de monedas para iniciar")
     async def balatro(self, interaction: discord.Interaction, bet: int):
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, interaction.user.id)
-        current_money = user_data.get("money", 100)
+        user = await db.get_user(interaction.guild_id, interaction.user.id)
+        current_money = user["money"]
 
         if bet <= 0:
             await interaction.response.send_message("❌ Debes apostar una cantidad positiva.", ephemeral=True)
             return
         if bet > current_money:
             await interaction.response.send_message(
-                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.",
-                ephemeral=True
+                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.", ephemeral=True
             )
             return
 
-        user_data["money"] = current_money - bet
-        save_data(data)
+        await db.add_money(interaction.guild_id, interaction.user.id, -bet)
+        guild_id = interaction.guild_id
 
         class BalatroView(discord.ui.View):
             def __init__(self, round_number: int = 1, multiplier: float = 1.25):
@@ -754,10 +590,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 self.stop()
                 if success:
                     payout = self.get_reward()
-                    data = load_data()
-                    user_data = get_user_data(data, interaction.guild_id, interaction.user.id)
-                    user_data["money"] += payout
-                    save_data(data)
+                    await db.add_money(guild_id, interaction.user.id, payout)
                     embed = discord.Embed(title="🏆 Cobrado", description=text, color=discord.Color.green())
                     embed.add_field(name="Ganancia total", value=format_money(payout), inline=False)
                 else:
@@ -772,19 +605,11 @@ class Gambling(commands.Cog, name="Gambling"):
                     self.multiplier += random.uniform(0.4, 0.85)
                     await interaction.response.edit_message(embed=self.update_embed(), view=self)
                 else:
-                    await self.finish(
-                        interaction,
-                        False,
-                        f"El bufón se ríe y te arrebata la apuesta en la ronda {self.round_number}."
-                    )
+                    await self.finish(interaction, False, f"El bufón se ríe y te arrebata la apuesta en la ronda {self.round_number}.")
 
             @discord.ui.button(label="Cobrar", style=discord.ButtonStyle.success)
             async def cash_out(self, interaction: discord.Interaction, button: discord.ui.Button):
-                await self.finish(
-                    interaction,
-                    True,
-                    f"Has cobrado después de {self.round_number} rondas con una recompensa de {format_money(self.get_reward())}."
-                )
+                await self.finish(interaction, True, f"Has cobrado después de {self.round_number} rondas con una recompensa de {format_money(self.get_reward())}.")
 
         view = BalatroView()
         await interaction.response.send_message(embed=view.update_embed(), view=view)
@@ -803,49 +628,45 @@ class Gambling(commands.Cog, name="Gambling"):
             await interaction.response.send_message("❌ Los días deben estar entre 1 y 30.", ephemeral=True)
             return
 
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, interaction.user.id)
-        current_money = user_data.get("money", 100)
-        if amount > current_money:
+        user = await db.get_user(interaction.guild_id, interaction.user.id)
+        if amount > user["money"]:
             await interaction.response.send_message(
-                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.",
-                ephemeral=True
+                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(user['money'])}.", ephemeral=True
             )
             return
 
-        user_data["money"] -= amount
-        predictions = get_guild_predictions(data, interaction.guild_id)
+        await db.add_money(interaction.guild_id, interaction.user.id, -amount)
         bet_id = str(uuid.uuid4())[:8]
         multiplier = predict_multiplier(days)
-        predictions[bet_id] = {
-            "creator_id": str(interaction.user.id),
-            "description": prediction_description,
-            "amount": amount,
-            "days": days,
-            "created_at": datetime.datetime.utcnow().isoformat(),
-            "resolve_at": (datetime.datetime.utcnow() + datetime.timedelta(days=days)).isoformat(),
-            "multiplier": multiplier,
-            "success_chance": predict_success_chance(days),
-            "settled": False,
-            "result": None,
-            "channel_id": None,
-            "message_id": None,
-        }
-        save_data(data)
+        created_at = datetime.datetime.utcnow()
+        resolve_at = created_at + datetime.timedelta(days=days)
 
-        poll_channel = self._get_gambling_channel(interaction.guild) or interaction.channel
+        await db.create_prediction(
+            interaction.guild_id, bet_id,
+            creator_id=str(interaction.user.id),
+            description=prediction_description,
+            amount=amount,
+            days=days,
+            created_at=created_at.isoformat(),
+            resolve_at=resolve_at.isoformat(),
+            multiplier=multiplier,
+            success_chance=predict_success_chance(days),
+            settled=0,
+            result=None,
+            channel_id=None,
+            message_id=None,
+        )
+
+        poll_channel = await self._get_gambling_channel(interaction.guild) or interaction.channel
         if poll_channel is None:
-            await interaction.response.send_message(
-                "❌ No hay canal disponible para publicar la votación.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ No hay canal disponible para publicar la votación.", ephemeral=True)
             return
 
-        resolve_at = datetime.datetime.utcnow() + datetime.timedelta(days=days)
         poll_embed = discord.Embed(
             title="🗳️ Nueva predicción",
             description=prediction_description,
             color=discord.Color.blue(),
-            timestamp=datetime.datetime.utcnow()
+            timestamp=created_at
         )
         poll_embed.add_field(name="ID", value=bet_id, inline=True)
         poll_embed.add_field(name="Creador", value=interaction.user.mention, inline=True)
@@ -861,22 +682,16 @@ class Gambling(commands.Cog, name="Gambling"):
             await poll_message.add_reaction("✅")
             await poll_message.add_reaction("❌")
         except Exception as e:
-            user_data["money"] += amount
-            save_data(data)
-            await interaction.response.send_message(
-                f"❌ No se pudo crear la votación: {e}", ephemeral=True
-            )
+            await db.add_money(interaction.guild_id, interaction.user.id, amount)
+            await interaction.response.send_message(f"❌ No se pudo crear la votación: {e}", ephemeral=True)
             return
 
-        predictions[bet_id]["channel_id"] = poll_channel.id
-        predictions[bet_id]["message_id"] = poll_message.id
-        save_data(data)
-
-        embed = discord.Embed(
-            title="📈 Apuesta de predicción creada",
-            description=prediction_description,
-            color=discord.Color.blue()
+        await db.update_prediction(
+            interaction.guild_id, bet_id,
+            channel_id=str(poll_channel.id), message_id=str(poll_message.id)
         )
+
+        embed = discord.Embed(title="📈 Apuesta de predicción creada", description=prediction_description, color=discord.Color.blue())
         embed.add_field(name="ID", value=bet_id, inline=True)
         embed.add_field(name="Apuesta", value=format_money(amount), inline=True)
         embed.add_field(name="Días", value=str(days), inline=True)
@@ -886,45 +701,34 @@ class Gambling(commands.Cog, name="Gambling"):
 
     @prediction_group.command(name="status", description="Consulta tus apuestas de predicción activas.")
     async def prediction_status(self, interaction: discord.Interaction):
-        data = load_data()
-        predictions = get_guild_predictions(data, interaction.guild_id)
+        predictions = await db.get_predictions(interaction.guild_id, include_settled=False)
         lines = []
-        for pid, pred in predictions.items():
-            if pred.get("creator_id") != str(interaction.user.id) or pred.get("settled"):
+        for pred in predictions:
+            if pred["creator_id"] != str(interaction.user.id):
                 continue
             resolve_at = datetime.datetime.fromisoformat(pred["resolve_at"])
             remaining = resolve_at - datetime.datetime.utcnow()
             hours = max(0, int(remaining.total_seconds() // 3600))
             minutes = max(0, int((remaining.total_seconds() % 3600) // 60))
-            lines.append(
-                f"**{pid}** — {pred['description']} — {format_money(pred['amount'])} — resuelve en {hours}h {minutes}m"
-            )
+            lines.append(f"**{pred['bet_id']}** — {pred['description']} — {format_money(pred['amount'])} — resuelve en {hours}h {minutes}m")
         if not lines:
             await interaction.response.send_message("No tienes apuestas activas.", ephemeral=True)
             return
-        embed = discord.Embed(
-            title="📊 Tus apuestas activas",
-            description="\n".join(lines),
-            color=discord.Color.blurple()
-        )
+        embed = discord.Embed(title="📊 Tus apuestas activas", description="\n".join(lines), color=discord.Color.blurple())
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="gambling_warns", description="Consulta los warns de gambling de un usuario.")
     @app_commands.describe(user="Usuario a consultar")
     async def gambling_warns(self, interaction: discord.Interaction, user: discord.Member = None):
-        settings = load_settings()
+        settings = await db.get_settings(interaction.guild_id)
         MAX_WARNS = settings.get("gambling_max_warns", 3)
 
         target = user or interaction.user
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, target.id)
-        warns = user_data["warns"]
-        locked_until = user_data.get("locked_until")
+        target_data = await db.get_user(interaction.guild_id, target.id)
+        warns = target_data["warns"]
+        locked_until = target_data["locked_until"]
 
-        embed = discord.Embed(
-            title=f"📋 Warns de {target.display_name}",
-            color=discord.Color.orange()
-        )
+        embed = discord.Embed(title=f"📋 Warns de {target.display_name}", color=discord.Color.orange())
         embed.add_field(name="Warns", value=f"{warns}/{MAX_WARNS}", inline=True)
         if locked_until:
             unlock_dt = datetime.datetime.fromisoformat(locked_until)
@@ -940,115 +744,88 @@ class Gambling(commands.Cog, name="Gambling"):
     @app_commands.describe(user="Usuario a perdonar")
     @app_commands.default_permissions(administrator=True)
     async def gambling_pardon(self, interaction: discord.Interaction, user: discord.Member):
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, user.id)
-        user_data["warns"] = 0
-        user_data["locked_until"] = None
-        save_data(data)
+        await db.update_user(interaction.guild_id, user.id, warns=0, locked_until=None)
 
-        # Restore channel permissions
-        ch = self._get_gambling_channel(interaction.guild)
+        ch = await self._get_gambling_channel(interaction.guild)
         if ch:
             await ch.set_permissions(user, send_messages=None, reason="Admin pardon.")
 
         await interaction.response.send_message(
-            f"✅ {user.mention} ha sido perdonado. Sus warns han sido borrados y el canal desbloqueado.",
-            ephemeral=True
+            f"✅ {user.mention} ha sido perdonado. Sus warns han sido borrados y el canal desbloqueado.", ephemeral=True
         )
 
     @app_commands.command(name="balance", description="Muestra tu saldo de gambling.")
     @app_commands.describe(user="Usuario a consultar")
     async def balance(self, interaction: discord.Interaction, user: discord.Member = None):
         target = user or interaction.user
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, target.id)
+        target_data = await db.get_user(interaction.guild_id, target.id)
         await interaction.response.send_message(
-            f"💰 {target.mention} tiene {format_money(user_data['money'])}.",
-            ephemeral=True
+            f"💰 {target.mention} tiene {format_money(target_data['money'])}.", ephemeral=True
         )
 
     @app_commands.command(name="daily", description="Reclama tu premio diario de gambling.")
     async def daily(self, interaction: discord.Interaction):
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, interaction.user.id)
+        user = await db.get_user(interaction.guild_id, interaction.user.id)
         today = datetime.datetime.utcnow().date().isoformat()
-        if user_data.get("daily_claimed") == today:
-            await interaction.response.send_message(
-                "❌ Ya has reclamado tu premio diario. Vuelve mañana.",
-                ephemeral=True
-            )
+        if user["daily_claimed"] == today:
+            await interaction.response.send_message("❌ Ya has reclamado tu premio diario. Vuelve mañana.", ephemeral=True)
             return
         reward = 50
-        user_data["money"] += reward
-        user_data["daily_claimed"] = today
-        save_data(data)
+        new_balance = await db.add_money(interaction.guild_id, interaction.user.id, reward)
+        await db.update_user(interaction.guild_id, interaction.user.id, daily_claimed=today)
         await interaction.response.send_message(
-            f"✅ ¡Premio diario reclamado! Has ganado {format_money(reward)}. Ahora tienes {format_money(user_data['money'])}.",
-            ephemeral=True
+            f"✅ ¡Premio diario reclamado! Has ganado {format_money(reward)}. Ahora tienes {format_money(new_balance)}.", ephemeral=True
         )
 
     @app_commands.command(name="bet", description="Apuesta una cantidad para ganar o perder.")
     @app_commands.describe(amount="Cantidad de monedas a apostar")
     async def bet(self, interaction: discord.Interaction, amount: int):
         if amount <= 0:
-            await interaction.response.send_message(
-                "❌ La cantidad debe ser un número positivo.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ La cantidad debe ser un número positivo.", ephemeral=True)
             return
-        data = load_data()
-        user_data = get_user_data(data, interaction.guild_id, interaction.user.id)
-        current_money = user_data.get("money", 100)
+        user = await db.get_user(interaction.guild_id, interaction.user.id)
+        current_money = user["money"]
         if amount > current_money:
             await interaction.response.send_message(
-                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.",
-                ephemeral=True
+                f"❌ No tienes suficientes monedas. Tu saldo es {format_money(current_money)}.", ephemeral=True
             )
             return
 
         win = random.choice([True, False])
         if win:
-            user_data["money"] += amount
+            new_balance = await db.add_money(interaction.guild_id, interaction.user.id, amount)
             embed = discord.Embed(
                 title="🎉 Apuesta ganada",
                 description=(
                     f"{interaction.user.mention} apostó {format_money(amount)} y ganó {format_money(amount)}.\n"
-                    f"Saldo actual: {format_money(user_data['money'])}."
+                    f"Saldo actual: {format_money(new_balance)}."
                 ),
                 color=discord.Color.green()
             )
         else:
-            user_data["money"] = max(0, current_money - amount)
+            new_balance = await db.add_money(interaction.guild_id, interaction.user.id, -amount)
             embed = discord.Embed(
                 title="😢 Apuesta perdida",
                 description=(
                     f"{interaction.user.mention} apostó {format_money(amount)} y lo perdió.\n"
-                    f"Saldo actual: {format_money(user_data['money'])}."
+                    f"Saldo actual: {format_money(new_balance)}."
                 ),
                 color=discord.Color.red()
             )
-        save_data(data)
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="leaderboard", description="Muestra el ranking de dinero en gambling.")
     async def leaderboard(self, interaction: discord.Interaction):
-        data = load_data()
-        top = get_top_balances(data, interaction.guild, limit=10)
+        top = await db.get_top_balances(interaction.guild_id, limit=10)
         if not top:
-            await interaction.response.send_message(
-                "No hay datos de gambling aún.", ephemeral=True
-            )
+            await interaction.response.send_message("No hay datos de gambling aún.", ephemeral=True)
             return
         description = []
         for idx, (uid, balance) in enumerate(top, start=1):
             member = interaction.guild.get_member(int(uid))
             name = member.display_name if member else f"User {uid}"
             description.append(f"**{idx}.** {name} — `{format_money(balance)}`")
-        embed = discord.Embed(
-            title="🏅 Gambling Leaderboard",
-            description="\n".join(description),
-            color=discord.Color.blurple()
-        )
+        embed = discord.Embed(title="🏅 Gambling Leaderboard", description="\n".join(description), color=discord.Color.blurple())
         await interaction.response.send_message(embed=embed)
 
 
