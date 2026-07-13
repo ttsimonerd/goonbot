@@ -1,0 +1,127 @@
+:root {
+  --bg: #23272a;
+  --surface: #2c2f33;
+  --surface-2: #36393f;
+  --text: #dcddde;
+  --muted: #96989d;
+  --blurple: #5865f2;
+  --blurple-hover: #4752c4;
+  --green: #3ba55d;
+  --red: #ed4245;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "gg sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+}
+
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  padding: 0.75rem 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.brand { color: var(--blurple); font-weight: 700; font-size: 1.2rem; text-decoration: none; }
+
+.nav-user { display: flex; align-items: center; gap: 0.75rem; }
+
+.avatar-small { width: 28px; height: 28px; border-radius: 50%; }
+
+.nav-link { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+.nav-link:hover { color: var(--text); }
+
+.container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+.center-card {
+  max-width: 400px;
+  margin: 4rem auto;
+  text-align: center;
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 3rem 2rem;
+}
+
+.subtitle { color: var(--muted); margin-bottom: 1.5rem; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.card {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.card.wide { grid-column: 1 / -1; }
+
+.profile-card { text-align: center; }
+
+.avatar-large { width: 80px; height: 80px; border-radius: 50%; margin-bottom: 0.75rem; }
+
+.stat { margin-top: 0.75rem; }
+.stat-value { display: block; font-size: 1.4rem; font-weight: 700; }
+.stat-label { display: block; color: var(--muted); font-size: 0.85rem; }
+
+.btn {
+  display: inline-block;
+  border: none;
+  border-radius: 8px;
+  padding: 0.65rem 1.4rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.btn-primary, .btn-discord { background: var(--blurple); color: white; }
+.btn-primary:hover, .btn-discord:hover { background: var(--blurple-hover); }
+.btn-danger { background: var(--red); color: white; }
+.btn-secondary { background: var(--surface-2); color: var(--text); }
+
+.btn-link { background: none; border: none; padding: 0; cursor: pointer; font-size: 0.85rem; }
+.btn-danger-link { color: var(--red); }
+
+.send-form { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+.send-form label { font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem; }
+.send-form select, .send-form textarea, .send-form input[type="text"] {
+  background: var(--surface-2);
+  border: 1px solid #40444b;
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.5rem;
+  font-family: inherit;
+}
+
+.inline-form { display: inline; }
+
+.muted { color: var(--muted); font-size: 0.9rem; }
+
+.message-list { list-style: none; padding: 0; margin: 0; }
+.message-list li { padding: 0.5rem 0; border-bottom: 1px solid var(--surface-2); font-size: 0.9rem; }
+.msg-channel { color: var(--blurple); margin-right: 0.5rem; }
+
+.banner { border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.9rem; }
+.banner-success { background: rgba(59, 165, 93, 0.15); color: var(--green); }
+.banner-error { background: rgba(237, 66, 69, 0.15); color: var(--red); }
+
+.pill { padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.8rem; }
+.pill-on { background: rgba(59, 165, 93, 0.2); color: var(--green); }
+.pill-off { background: rgba(237, 66, 69, 0.2); color: var(--red); }
+
+.channel-list { list-style: none; padding: 0; margin: 0 0 1rem 0; }
+.channel-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; font-size: 0.9rem; }
+
+.log-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.log-table th { text-align: left; color: var(--muted); padding: 0.5rem; border-bottom: 1px solid var(--surface-2); }
+.log-table td { padding: 0.5rem; border-bottom: 1px solid var(--surface-2); }
