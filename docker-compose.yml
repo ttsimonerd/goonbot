@@ -5,8 +5,8 @@ services:
       dockerfile: Dockerfile
     container_name: goonbot
     restart: always
-    ports:
-      - "${PORT:-8000}:8000"
+    expose:
+      - "8000"
     volumes:
       - goonbot_data:/app/data
     environment:
