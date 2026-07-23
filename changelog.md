@@ -1,5 +1,38 @@
 # Registro de cambios
 
+## 23-07-2026
+
+### Añadido
+
+- Añadido el comando de barra `/lefa` para interactuar con el modelo de IA local Qwen2.5 0.5B vía Ollama.
+- Conexión a la instancia local de Ollama (configurable mediante la variable de entorno `OLLAMA_URL`, por defecto `http://localhost:11434`).
+- Instrucciones de sistema personalizadas para el modelo Qwen2.5 0.5B (configurables vía `OLLAMA_SYSTEM_PROMPT`).
+
+### Eliminado
+
+- Eliminadas todas las conexiones y variables de entorno de proveedores de IA en la nube (OpenRouter / `OPENROUTER_APIKEY`).
+- Eliminada la marca y los comandos legacy de "Co-Co Pilot" (`/clanker`, `/text`, `/forget`).
+- Eliminado el gestor en `on_message` que respondía automáticamente a menciones de IA (`@GoonBot`).
+
+### Actualizado
+
+- Se actualizó el menú de ayuda `^help` para listar la sección de IA únicamente con `/lefa` y actualizar el pie de página.
+- Refactorizado `cogs/aitexts.py` y `main.py` para aislar las respuestas de la IA exclusivamente al comando `/lefa`.
+
+---
+
+## Mensaje para Discord (listo para pegar)
+
+**Actualización (23/07/2026) — Migración a IA Local (Ollama + Qwen2.5 0.5B) 🤖**
+
+**Novedades**
+- 🤖 `/lefa <mensaje>` — Nuevo comando slash para hablar con la IA local (Qwen2.5 0.5B).
+- ⚙️ Conexión directa a servidor Ollama local.
+- 🚫 Eliminadas conexiones externas a OpenRouter y Co-Co Pilot.
+- 🔕 El bot solo responde a la IA cuando se utiliza el comando `/lefa`.
+
+---
+
 ## 30-05-2026
 
 ### Añadido
