@@ -21,4 +21,9 @@ ENV GOONBOT_DB_PATH=/app/data/goonbot.db
 ENV PORT=8000
 EXPOSE 8000
 
+# Ollama Local AI Configuration Defaults
+ENV OLLAMA_URL=http://localhost:11434
+ENV OLLAMA_MODEL=qwen2.5:0.5b
+ENV OLLAMA_SYSTEM_PROMPT=""
+
 CMD ["python3", "main.py"]
