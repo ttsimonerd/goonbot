@@ -1,25 +1,23 @@
 # 🧑‍💻 Goonbot 🤖
 
 ### Source code for my little discord bot project.
-> If you want to try or know what features this bot have feel free to contact me through github!
+> If you want to try or know what features this bot has, feel free to contact me through GitHub or Discord!
 
 ---
 
-![Goonbot's discord profile picture](https://cdn.discordapp.com/avatars/1440784584156385472/c77896c428794431a4288f5eb2f27021?size=256) [^1]
-[^1]: Ts is the Goonbot discord profile picture
+![Goonbot's discord profile picture](https://cdn.discordapp.com/avatars/1440784584156385472/c77896c428794431a4288f5eb2f27021?size=256)
 
 ## What can this bot do? 👣
 
-- [ ] Make you a sandwich?
-- [X] Roast you and your friends?
-- [X] Ban members with stupid reasons?
-- [X] Have a secret code to run a custom script?
-- [X] Have a dashboard to send messages through the bot?
-- [X] More functions coming soon?
+- [X] **Local AI Integration**: Talk to **Lefa AI** (`/lefa`) powered by local Ollama (`qwen2.5:0.5b`).
+- [X] **Gambling & Economy**: Shared economy system (`/balance`, `/daily`, `/roulette`, `/blackjack`, `/poker`, `/balatro`, `/bet`, `/leaderboard`, `/votebet`).
+- [X] **Voice Soundboard**: Play custom sounds in voice channels (`/play`, `/sounds`).
+- [X] **Web Dashboard**: Web control panel with Discord OAuth2 to manage bot messages and settings.
+- [X] **Fun Commands**: Roast users, rampage reactions, and secret admin commands.
+- [X] **Server Activity Logging**: Event logger syncing server activities to ClickUp.
 
-```md
-Plz check my other repos if you reached here
-```
-Repos --> [Here :>](https://github.com/ttsimonerd?tab=repositories)
-- PD: if you want to contact me through other platforms choose discord plz [^2]
-[^2]: My discord here --> [el_navajas](https://discord.com/users/988470489909432334)
+---
+
+### Links & Contact
+- **GitHub Repos**: [ttsimonerd Repositories](https://github.com/ttsimonerd?tab=repositories)
+- **Discord Profile**: [el_navajas](https://discord.com/users/988470489909432334)

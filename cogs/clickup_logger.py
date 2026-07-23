@@ -169,11 +169,12 @@ class ClickUpLogger(commands.Cog, name="ClickUpLogger"):
         """Save buffer to local file every 5 minutes as backup."""
         if not self.event_buffer:
             return
+        count = len(self.event_buffer)
         existing = load_event_log()
         existing.extend(self.event_buffer)
         save_event_log(existing)
         self.event_buffer.clear()
-        print(f"[ClickUp Logger] Saved {len(self.event_buffer)} events to local file.")
+        print(f"[ClickUp Logger] Saved {count} events to local file.")
 
     @save_buffer_locally.before_loop
     async def before_save(self):

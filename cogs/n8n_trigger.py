@@ -26,7 +26,6 @@ class N8N(commands.Cog, name="N8N"):
             "triggered_by": str(interaction.user),
             "discord_id": str(interaction.user.id),
             "guild_id": str(interaction.guild_id) if interaction.guild_id else None,
-            "data": data,
         }
 
         try:

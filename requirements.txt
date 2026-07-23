@@ -4,7 +4,6 @@ aiohttp
 aiosqlite
 yt-dlp
 requests
-openai
 fastapi
 uvicorn[standard]
 authlib
