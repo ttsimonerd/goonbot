@@ -9,12 +9,11 @@
 
 ## What can this bot do? 👣
 
-- [X] **Local AI Integration**: Talk to **Lefa AI** (`/lefa`) powered by local Ollama (`qwen2.5:0.5b`).
+- [X] **Local AI Integration**: Talk to **AI** powered by local Ollama (`qwen2.5:0.5b`, dumbah...).
 - [X] **Gambling & Economy**: Shared economy system (`/balance`, `/daily`, `/roulette`, `/blackjack`, `/poker`, `/balatro`, `/bet`, `/leaderboard`, `/votebet`).
 - [X] **Voice Soundboard**: Play custom sounds in voice channels (`/play`, `/sounds`).
 - [X] **Web Dashboard**: Web control panel with Discord OAuth2 to manage bot messages and settings.
 - [X] **Fun Commands**: Roast users, rampage reactions, and secret admin commands.
-- [X] **Server Activity Logging**: Event logger syncing server activities to ClickUp.
 
 ---
 
