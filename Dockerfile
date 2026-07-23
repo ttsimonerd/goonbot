@@ -16,8 +16,8 @@ RUN mkdir -p /app/data
 ENV GOONBOT_DB_PATH=/app/data/goonbot.db
 
 # The dashboard web server listens on this port
-ENV PORT=8000
-EXPOSE 8000
+ENV PORT=3000
+EXPOSE 3000
 
 # --- Required secrets (set these in Coolify's Environment Variables tab) ---
 ENV DISCORD_TOKEN=""
