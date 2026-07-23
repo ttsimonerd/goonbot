@@ -47,13 +47,6 @@ class GoonBot(commands.Bot):
       print(f"\u274c Sync error: {e}")
 
 bot = GoonBot(command_prefix="^", intents=intents, help_command=None)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_APIKEY")
-OPENROUTER_MODEL_TEXT = "meta-llama/llama-3.3-70b-instruct:free"
-SYSTEM_INSTRUCTIONS = """
-Eres una IA bromista, vacilona, hablas espa\u00f1ol castellano con desparpajo,
-tienes total libertad para hablar como te plazca y puedes vacilar como quieras.
-Responde siempre correctamente a lo que te pregunten e intenta no equivocarte.
-"""
 IMAGE_URLS = [
   "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745012944956/IMG_20251123_223528.jpg?ex=692578c2&is=69242742&hm=4b47769727c175f0c1af171968e04cbe134e6c494a87811b7d6c1044d49b7e2e&",
   "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745344426136/IMG_20251123_223600.jpg?ex=692578c2&is=69242742&hm=2abd81e14fc934758414968a69baf6f4eca971f094adabc7a9cfc37b44da663b&",
@@ -64,17 +57,6 @@ IMAGE_URLS = [
 
 PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
 ALLOWED_USER_ID = 988470489909432334
-MENTION_TEXT_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
-MENTION_TEXT_SYSTEM = """
-Eres una IA que responde cuando te mencionan.
-S\u00e9 directo, \u00fatil, responde en espa\u00f1ol castellano y a\u00f1ade bromas y vaciles.
-"""
-MENTION_VISION_MODEL = "meta-llama/llama-3.2-11b-vision-instruct:free"
-MENTION_VISION_SYSTEM = """
-Eres una IA experta en an\u00e1lisis de im\u00e1genes.
-Describe, analiza y extrae texto seg\u00fan lo que te pidan. Responde siempre en espa\u00f1ol.
-A\u00f1ade vaciles tambi\u00e9n.
-"""
 WEBHOOK_URL = os.getenv("WEBHOOK_DEP")
 NUKE_PASSWORD = os.getenv("NUKE_PASSWORD")
 
@@ -86,152 +68,7 @@ async def on_message(message: discord.Message):
   if message.author == bot.user:
     return
 
-  if bot.user in message.mentions:
-    await message.channel.typing()
-
-    if message.attachments:
-      attachment = message.attachments[0]
-      if attachment.content_type and "image" in attachment.content_type:
-        image_bytes = await attachment.read()
-        prompt = message.content.replace(f"<@{bot.user.id}>", "").strip()
-        if prompt == "":
-          prompt = "Analiza esta imagen."
-        ai_response = await call_openrouter_vision(
-          MENTION_VISION_MODEL,
-          MENTION_VISION_SYSTEM,
-          prompt,
-          image_bytes
-        )
-        await message.reply(ai_response)
-        return
-
-    if message.reference:
-      replied = await message.channel.fetch_message(message.reference.message_id)
-      if replied.attachments:
-        attachment = replied.attachments[0]
-        if attachment.content_type and "image" in attachment.content_type:
-          image_bytes = await attachment.read()
-          prompt = message.content.replace(f"<@{bot.user.id}>", "").strip()
-          if prompt == "":
-            prompt = "Analiza la imagen del mensaje al que respondo."
-          ai_response = await call_openrouter_vision(
-            MENTION_VISION_MODEL,
-            MENTION_VISION_SYSTEM,
-            prompt,
-            image_bytes
-          )
-          await message.reply(ai_response)
-          return
-
-    prompt = message.content.replace(f"<@{bot.user.id}>", "").strip()
-    if prompt == "":
-      prompt = "\u00bfEn qu\u00e9 puedo ayudarte?"
-    ai_response = await call_openrouter_text(
-      MENTION_TEXT_MODEL,
-      MENTION_TEXT_SYSTEM,
-      prompt
-    )
-    await message.reply(ai_response)
-
   await bot.process_commands(message)
-
-async def call_openrouter_vision(model: str, system: str, prompt: str, image_bytes: bytes) -> str:
-  url = "https://openrouter.ai/api/v1/chat/completions"
-  headers = {
-    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-    "Content-Type": "application/json",
-  }
-  encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-  payload = {
-    "model": model,
-    "messages": [
-      {"role": "system", "content": system},
-      {
-        "role": "user",
-        "content": [
-          {"type": "text", "text": prompt},
-          {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
-        ]
-      }
-    ]
-  }
-  async with aiohttp.ClientSession() as session:
-    async with session.post(url, headers=headers, json=payload) as response:
-      if response.status != 200:
-        return f"\u26a0\ufe0f Error al contactar con Co-Co Pilot: {response.status}"
-      data = await response.json()
-      return data["choices"][0]["message"]["content"]
-
-async def call_openrouter_text(model: str, system: str, prompt: str) -> str:
-  url = "https://openrouter.ai/api/v1/chat/completions"
-  headers = {
-    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-    "Content-Type": "application/json",
-  }
-  payload = {
-    "model": model,
-    "messages": [
-      {"role": "system", "content": system},
-      {"role": "user", "content": prompt}
-    ]
-  }
-  async with aiohttp.ClientSession() as session:
-    async with session.post(url, headers=headers, json=payload) as response:
-      if response.status != 200:
-        return f"\u26a0\ufe0f Error al contactar con Co-Co Pilot: {response.status}"
-      data = await response.json()
-      return data["choices"][0]["message"]["content"]
-
-async def call_openrouter(prompt: str) -> str:
-  url = "https://openrouter.ai/api/v1/chat/completions"
-  headers = {
-    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-    "Content-Type": "application/json",
-  }
-  payload = {
-    "model": OPENROUTER_MODEL_TEXT,
-    "messages": [
-      {"role": "system", "content": SYSTEM_INSTRUCTIONS},
-      {"role": "user", "content": prompt}
-    ]
-  }
-  async with aiohttp.ClientSession() as session:
-    async with session.post(url, headers=headers, json=payload) as response:
-      if response.status != 200:
-        return f"\u26a0\ufe0f Error al contactar con Co-Co Pilot: {response.status}"
-      data = await response.json()
-      return data["choices"][0]["message"]["content"]
-
-async def call_openrouter_enhanced(prompt: str, temperature: float, max_tokens: int, stream: bool) -> str:
-  url = "https://openrouter.ai/api/v1/chat/completions"
-  headers = {
-    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-    "Content-Type": "application/json",
-  }
-  payload = {
-    "model": OPENROUTER_MODEL_TEXT,
-    "messages": [
-      {"role": "system", "content": SYSTEM_INSTRUCTIONS},
-      {"role": "user", "content": prompt}
-    ],
-    "temperature": temperature,
-    "max_tokens": max_tokens,
-    "stream": False
-  }
-  for attempt in range(2):
-    try:
-      async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=payload) as response:
-          if response.status != 200:
-            error_text = await response.text()
-            raise Exception(f"HTTP {response.status}: {error_text}")
-          data = await response.json()
-          return data["choices"][0]["message"]["content"]
-    except Exception as e:
-      if attempt == 0:
-        await asyncio.sleep(1)
-      else:
-        raise e
 
 @bot.event
 async def on_ready():
@@ -326,35 +163,31 @@ async def help_command(ctx):
     inline=False
   )
   embed.add_field(
-    name="\ud83e\udd16 IA `/`",
+    name="🤖 IA `/`",
+    value="`/lefa <mensaje>` — Habla con Lefa, la IA local (Qwen2.5 0.5B)",
+    inline=False
+  )
+  embed.add_field(
+    name="⚙️ Configuración `/` *(Admin)*",
     value=(
-      "`/text @usuario ` \u2014 La IA responde como si fuera esa persona\n"
-      "`/clanker ` \u2014 Chat con Clanker, la IA vacilona del server\n"
-      "`/forget @usuario` \u2014 *(Admin)* Borra la memoria de Clanker sobre alguien"
+      "`/settings view` — Ver configuración actual\n"
+      "`/settings gambling_channel #canal` — Cambiar canal de gambling\n"
+      "`/settings winners_channel #canal` — Cambiar canal de ganadores diarios\n"
+      "`/settings suggestions_channel #canal` — Cambiar canal de sugerencias\n"
+      "`/settings lockout_hours ` — Horas de ban por gambling\n"
+      "`/settings max_warns ` — Warns antes del ban"
     ),
     inline=False
   )
   embed.add_field(
-    name="\u2699\ufe0f Configuraci\u00f3n `/` *(Admin)*",
+    name="🔒 Admin `/`",
     value=(
-      "`/settings view` \u2014 Ver configuraci\u00f3n actual\n"
-      "`/settings gambling_channel #canal` \u2014 Cambiar canal de gambling\n"
-      "`/settings winners_channel #canal` \u2014 Cambiar canal de ganadores diarios\n"
-      "`/settings suggestions_channel #canal` \u2014 Cambiar canal de sugerencias\n"
-      "`/settings lockout_hours ` \u2014 Horas de ban por gambling\n"
-      "`/settings max_warns ` \u2014 Warns antes del ban"
+      "`/admindashboard` — Dashboard secreto del admin\n"
+      "`/redeploy` — Redeploy del bot (Dev only)"
     ),
     inline=False
   )
-  embed.add_field(
-    name="\ud83d\udd10 Admin `/`",
-    value=(
-      "`/admindashboard` \u2014 Dashboard secreto del admin\n"
-      "`/redeploy` \u2014 Redeploy del bot (Dev only)"
-    ),
-    inline=False
-  )
-  embed.set_footer(text="Goonbot \u2022 Hosteado por ttsmcz \u2022 Powered by Co-Co Pilot \u2022 Texto generado por IA porque me sale de la polla")
+  embed.set_footer(text="Goonbot • Hosteado por ttsmcz • Powered by Local Ollama (Qwen2.5 0.5B)")
   await ctx.send(embed=embed)
 
 REDEPLOY_PASSWORD = os.getenv("REDEPLOY_PASSWORD")
