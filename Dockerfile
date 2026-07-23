@@ -10,18 +10,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# The SQLite DB lives here. Mount a persistent volume at this exact path in
-# Coolify (Storage tab -> Add Volume -> container path: /app/data), otherwise
-# every redeploy wipes all balances/settings, same problem the JSON files had.
+# Coolify (Storage tab -> Add Volume -> container path: /app/data)
 RUN mkdir -p /app/data
 ENV GOONBOT_DB_PATH=/app/data/goonbot.db
 
-# The dashboard's web server. In Coolify: set this app's "Port" to 8000 and
-# attach your domain — this is what makes the dashboard reachable publicly.
-ENV PORT=8000
-EXPOSE 8000
+ENV PORT=3000
+EXPOSE 3000
 
-# Ollama Local AI Configuration Defaults
 ENV OLLAMA_URL=http://localhost:11434
 ENV OLLAMA_MODEL=qwen2.5:0.5b
 ENV OLLAMA_SYSTEM_PROMPT=""
