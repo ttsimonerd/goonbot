@@ -209,8 +209,7 @@ async def sendwebhook(interaction: discord.Interaction, password: str):
 async def main():
   token = os.getenv("DISCORD_TOKEN")
   if not token:
-    print("Warning: DISCORD_TOKEN is missing or not set!")
-    return
+    raise RuntimeError("CRITICAL ERROR: DISCORD_TOKEN is missing or not set in environment variables!")
 
   await db.init_db()
   print("✅ Database initialized")
