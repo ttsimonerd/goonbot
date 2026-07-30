@@ -7,6 +7,7 @@ requests
 fastapi
 uvicorn[standard]
 authlib
+httpx
 jinja2
 itsdangerous
 python-multipart
