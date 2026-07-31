@@ -124,7 +124,6 @@ async def help_command(ctx):
       "`^roast [@usuario]` \u2014 Insulta a alguien\n"
       "`^rape [@usuario]` \u2014 Amenaza a alguien\n"
       "`^rampage @usuario` \u2014 Rampage contra un usuario\n"
-      "`^los_horrores ` \u2014 \ud83d\udc80 Comando secreto de destrucci\u00f3n"
     ),
     inline=False
   )
