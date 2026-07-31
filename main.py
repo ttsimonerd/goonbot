@@ -40,8 +40,11 @@ class GoonBot(commands.Bot):
         print(f"\u274c Failed to load extension {ext}: {e}")
     
     try:
-      await self.tree.sync()
-      print("\u2705 Slash commands synced!")
+      synced = await self.tree.sync()
+      print("===== REGISTERED COMMANDS =====")
+      for cmd in synced:
+        print(cmd.name)
+      print("===============================")
     except Exception as e:
       print(f"\u274c Sync error: {e}")
 
