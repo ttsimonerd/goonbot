@@ -20,17 +20,17 @@ intents.message_content = True
 class GoonBot(commands.Bot):
   async def setup_hook(self):
     extensions = [
-      "cogs.mensajes",
-      "cogs.fun",
-      "cogs.secret_command",
-      "cogs.soundboard",
-      "cogs.gambling",
-      "cogs.suggestions",
-      "cogs.aitexts",
-      "cogs.settings",
-      "cogs.maintenance",
       "cogs.admin",
-      "cogs.n8n_trigger"
+      "cogs.aitexts",
+      "cogs.fun",
+      "cogs.gambling",
+      "cogs.maintenance",
+      "cogs.mensajes",
+      "cogs.n8n_trigger",
+      "cogs.secret_command",
+      "cogs.settings",
+      "cogs.soundboard",
+      "cogs.suggestions"
     ]
     for ext in extensions:
       try:
@@ -134,7 +134,7 @@ async def help_command(ctx):
       "`/roulette <red|black|even|odd|green>` \u2014 Juega a la ruleta\n"
       "`/blackjack ` \u2014 Juega Blackjack\n"
       "`/poker ` \u2014 Juega Poker r\u00e1pido vs la banca\n"
-      "`/balatro ` \u2014 Juego de rondas infinitas hasta perder o cobrar\n"
+      "`/crash ` \u2014 Juego de rondas infinitas hasta perder o cobrar\n"
       "`/bet ` \u2014 Apuesta dinero para ganar o perder\n"
       "`/balance [@usuario]` \u2014 Muestra saldo de gambling\n"
       "`/daily` \u2014 Reclama tu premio diario\n"
@@ -163,7 +163,7 @@ async def help_command(ctx):
   )
   embed.add_field(
     name="🤖 IA `/`",
-    value="`/lefa <mensaje>` — Habla con Lefa, la IA local (Qwen2.5 0.5B)",
+    value="`/lefa <mensaje>` — Habla con la IA",
     inline=False
   )
   embed.add_field(
@@ -181,8 +181,7 @@ async def help_command(ctx):
   embed.add_field(
     name="🔒 Admin `/`",
     value=(
-      "`/admindashboard` — Dashboard secreto del admin\n"
-      "`/redeploy` — Redeploy del bot (Dev only)"
+      "`/redeploy` — (Dev only)"
     ),
     inline=False
   )
