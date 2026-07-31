@@ -6,11 +6,7 @@ from discord.ext import commands
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b")
-DEFAULT_SYSTEM_PROMPT = os.getenv(
-    "OLLAMA_SYSTEM_PROMPT",
-    "Eres Lefa, una IA sarcástica, graciosa y vacilona del servidor Discord GoonBot. "
-    "Respondes siempre en español castellano con desparpajo y humor, de forma directa, corta y divertida."
-)
+DEFAULT_SYSTEM_PROMPT = os.getenv("OLLAMA_SYSTEM_PROMPT")
 
 
 async def call_ollama(prompt: str, system: str = DEFAULT_SYSTEM_PROMPT) -> str:
@@ -41,7 +37,7 @@ class AITexts(commands.Cog, name="AITexts"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="lefa", description="Habla con Lefa, la IA local (Qwen2.5 0.5B).")
+    @app_commands.command(name="lefa", description="Ai Ai Ai Aii")
     @app_commands.describe(prompt="Mensaje o pregunta para la IA")
     async def lefa(
         self,
@@ -54,9 +50,9 @@ class AITexts(commands.Cog, name="AITexts"):
         username = interaction.user.display_name
 
         embed = discord.Embed(color=0x992D22)
-        embed.set_author(name="🥛 Lefa AI")
+        embed.set_author(name="Ai Ai Ai Ai")
         embed.add_field(name=f"💬 {username}", value=f"```{prompt[:1000]}```", inline=False)
-        embed.add_field(name="🤖 Lefa", value=reply[:1024] if len(reply) <= 1024 else reply[:1021] + "...", inline=False)
+        embed.add_field(name="🤖", value=reply[:1024] if len(reply) <= 1024 else reply[:1021] + "...", inline=False)
         embed.set_footer(text=f"Model: {OLLAMA_MODEL} • Local Ollama")
 
         await interaction.followup.send(embed=embed)
