@@ -5,7 +5,7 @@ from discord.ext import commands
 from discord import app_commands
 from typing import Optional
 
-AUDIO_DIR = "/app/audio"
+AUDIO_DIR = "/audio"
 
 FFMPEG_OPTIONS = {
     'executable': '/usr/bin/ffmpeg',
@@ -41,7 +41,7 @@ class Soundboard(commands.Cog, name="Soundboard"):
         try:
             vc = await target_channel.connect()
         except discord.ClientException as e:
-            await interaction.followup.send(f"❌ No se pudo conectar al canal: {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ Couldn't connect: {e}", ephemeral=True)
             return
 
         print(f"[Soundboard] Playing {sound_path} in {target_channel.name}")
@@ -65,7 +65,7 @@ class Soundboard(commands.Cog, name="Soundboard"):
             return
 
         await interaction.followup.send(
-            f"🔊 `{sound_name}` en **{target_channel.name}**"
+            f"🔊 `{sound_name}` in **{target_channel.name}**"
         )
 
     @app_commands.command(
@@ -95,7 +95,7 @@ class Soundboard(commands.Cog, name="Soundboard"):
                 target_channel = user.voice.channel
             else:
                 await interaction.followup.send(
-                    f"❌ {user.mention} no está en ningún canal de voz.",
+                    f"❌ {user.mention} isn't in a vc.",
                     ephemeral=True
                 )
                 return
@@ -104,7 +104,7 @@ class Soundboard(commands.Cog, name="Soundboard"):
                 target_channel = interaction.user.voice.channel
             else:
                 await interaction.followup.send(
-                    "❌ Debes estar en un canal de voz, o especificar un `canal` o `usuario`.",
+                    "❌ You must be in a channel or specify options.",
                     ephemeral=True
                 )
                 return
@@ -119,7 +119,7 @@ class Soundboard(commands.Cog, name="Soundboard"):
         if not sound_path:
             available = ", ".join(self.get_sounds()) or "ninguno"
             await interaction.followup.send(
-                f"❌ Sonido `{sound}` no encontrado.\n🎵 Disponibles: `{available}`",
+                f"❌ Sound `{sound}` not found.\n🎵 Available: `{available}`",
                 ephemeral=True
             )
             return
@@ -137,14 +137,14 @@ class Soundboard(commands.Cog, name="Soundboard"):
     async def sounds(self, interaction: discord.Interaction):
         available = self.get_sounds()
         if not available:
-            await interaction.response.send_message("No hay sonidos disponibles.", ephemeral=True)
+            await interaction.response.send_message("No available sounds.", ephemeral=True)
             return
         embed = discord.Embed(
-            title="Sonidos disponibles",
+            title="Available sounds",
             description="\n".join(f"• `{s}`" for s in available),
             color=discord.Color.purple()
         )
-        embed.set_footer(text="Usa /play <nombre> para reproducir un sonido.")
+        embed.set_footer(text="Use /play <sound_name>")
         await interaction.response.send_message(embed=embed)
 
 
