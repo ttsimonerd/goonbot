@@ -27,12 +27,6 @@ ENV REDEPLOY_PASSWORD=""
 ENV WEBHOOK_DEP=""
 ENV NUKE_PASSWORD=""
 
-# --- Optional: ClickUp integration ---
-ENV CLICKUP_API_TOKEN=""
-ENV CLICKUP_WORKSPACE_ID=""
-ENV CLICKUP_DOC_ID=""
-ENV CLICKUP_PAGE_ID=""
-
 # --- Optional: n8n integration ---
 ENV N8N_WEBHOOK_URL=""
 
