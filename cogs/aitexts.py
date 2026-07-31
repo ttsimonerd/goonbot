@@ -59,4 +59,8 @@ class AITexts(commands.Cog, name="AITexts"):
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(AITexts(bot))
+    cog = AITexts(bot)
+    await bot.add_cog(cog)
+
+    print("Cog loaded:", cog.qualified_name)
+    print("Cog commands:", [c.name for c in cog.get_app_commands()])
