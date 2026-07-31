@@ -8,16 +8,16 @@ import db
 # ---------------------
 # Modal
 # ---------------------
-class SuggestionModal(ui.Modal, title="💡 Nueva Sugerencia"):
+class SuggestionModal(ui.Modal, title="💡 New suggestion"):
     suggestion_title = ui.TextInput(
-        label="Título de tu sugerencia",
-        placeholder="Ej: Añade un comando de música...",
+        label="Title",
+        placeholder="Example: Add a command to...",
         required=True,
         max_length=100
     )
     suggestion_body = ui.TextInput(
-        label="Descripción (opcional)",
-        placeholder="Explica tu idea con más detalle...",
+        label="Description (optional)",
+        placeholder="Detailed idea description...",
         style=discord.TextStyle.paragraph,
         required=False,
         max_length=1000
@@ -32,7 +32,6 @@ class SuggestionModal(ui.Modal, title="💡 Nueva Sugerencia"):
         settings = await db.get_settings(guild.id)
         ch_id = settings.get("suggestions_channel_id")
 
-        # Try to get channel by ID first, then fallback to name auto-detect
         suggestions_channel = None
         if ch_id:
             suggestions_channel = guild.get_channel(ch_id)
@@ -44,7 +43,7 @@ class SuggestionModal(ui.Modal, title="💡 Nueva Sugerencia"):
 
         if suggestions_channel is None:
             await interaction.response.send_message(
-                "❌ No se encontró el canal de sugerencias. Pídele al admin que lo configure con `/settings suggestions_channel`.",
+                "❌ No suggestion channel found. If you are admin, set it with `/settings suggestions_channel`.",
                 ephemeral=True
             )
             return
@@ -52,14 +51,14 @@ class SuggestionModal(ui.Modal, title="💡 Nueva Sugerencia"):
         # Build the embed
         embed = discord.Embed(
             title=f"💡 {self.suggestion_title.value}",
-            description=self.suggestion_body.value or "*Sin descripción adicional.*",
+            description=self.suggestion_body.value or "*No aditional description*",
             color=discord.Color.gold()
         )
         embed.set_author(
             name=interaction.user.display_name,
             icon_url=interaction.user.display_avatar.url
         )
-        embed.set_footer(text=f"Sugerencia de {interaction.user} • ID: {interaction.user.id}")
+        embed.set_footer(text=f"{interaction.user}'s suggestion • ID: {interaction.user.id}")
 
         # Post it to the suggestions channel with voting reactions
         msg = await suggestions_channel.send(embed=embed)
@@ -67,26 +66,22 @@ class SuggestionModal(ui.Modal, title="💡 Nueva Sugerencia"):
         await msg.add_reaction("❌")
 
         await interaction.response.send_message(
-            "✅ ¡Tu sugerencia ha sido enviada! Los mods la revisarán pronto.",
+            "✅ Your suggestion has been sent!.",
             ephemeral=True
         )
 
     async def on_error(self, interaction: Interaction, error: Exception):
         await interaction.response.send_message(
-            f"⚠️ Error al enviar la sugerencia: {error}", ephemeral=True
+            f"⚠️ Error: {error}", ephemeral=True
         )
 
 
-# ---------------------
-# Cog
-# ---------------------
 class Suggestions(commands.Cog, name="Suggestions"):
-    """Sistema de sugerencias con modal de Discord."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="suggest", description="Envía una sugerencia para el bot o el servidor.")
+    @app_commands.command(name="suggest", description="Send a suggestion")
     async def suggest(self, interaction: Interaction):
         modal = SuggestionModal(self.bot)
         await interaction.response.send_modal(modal)
