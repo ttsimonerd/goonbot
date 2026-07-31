@@ -6,18 +6,17 @@ import db
 
 
 class Settings(commands.Cog, name="Settings"):
-    """Configuración del bot para admins."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     settings_group = app_commands.Group(
         name="settings",
-        description="⚙️ Configura el bot. Solo admins.",
+        description="[ADMIN]",
         default_permissions=discord.Permissions(administrator=True)
     )
 
-    @settings_group.command(name="view", description="Muestra la configuración actual del bot.")
+    @settings_group.command(name="view", description="Show current config")
     async def view(self, interaction: Interaction):
         data = await db.get_settings(interaction.guild_id)
 
@@ -25,61 +24,61 @@ class Settings(commands.Cog, name="Settings"):
         suggestions_ch = interaction.guild.get_channel(data["suggestions_channel_id"]) if data["suggestions_channel_id"] else None
         winning_ch = interaction.guild.get_channel(data["gambling_winners_channel_id"]) if data["gambling_winners_channel_id"] else None
 
-        embed = discord.Embed(title="⚙️ Configuración actual de Goonbot", color=discord.Color.blurple())
+        embed = discord.Embed(title="⚙️ GoonBot's config", color=discord.Color.blurple())
         embed.add_field(
-            name="🎲 Canal de Gambling",
+            name="🎲 Gambling config:",
             value=gambling_ch.mention if gambling_ch else "*(auto-detect por nombre)*",
             inline=False
         )
         embed.add_field(
-            name="🏆 Canal de Ganadores Diarios",
+            name="🏆 Daily wins config:",
             value=winning_ch.mention if winning_ch else "*(auto-detect por nombre)*",
             inline=False
         )
-        embed.add_field(name="⏱️ Duración del ban de gambling", value=f"{data['gambling_lockout_hours']} horas", inline=True)
-        embed.add_field(name="⚠️ Warns para banear", value=str(data["gambling_max_warns"]), inline=True)
+        embed.add_field(name="⏱️ Gambling ban config:", value=f"{data['gambling_lockout_hours']} horas", inline=True)
+        embed.add_field(name="⚠️ Warns for ban config:", value=str(data["gambling_max_warns"]), inline=True)
         embed.add_field(
-            name="💡 Canal de Sugerencias",
+            name="💡 Suggestion channel config:",
             value=suggestions_ch.mention if suggestions_ch else "*(auto-detect por nombre)*",
             inline=False
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @settings_group.command(name="gambling_channel", description="Establece el canal de gambling.")
-    @app_commands.describe(channel="Canal donde se juega al gambling")
+    @settings_group.command(name="gambling_channel", description="Set gambling channel.")
+    @app_commands.describe(channel="Gambling channel")
     async def set_gambling_channel(self, interaction: Interaction, channel: discord.TextChannel):
         await db.update_settings(interaction.guild_id, gambling_channel_id=str(channel.id))
-        await interaction.response.send_message(f"✅ Canal de gambling establecido en {channel.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Channel set to: {channel.mention}.", ephemeral=True)
 
-    @settings_group.command(name="suggestions_channel", description="Establece el canal de sugerencias.")
-    @app_commands.describe(channel="Canal donde se envían las sugerencias")
+    @settings_group.command(name="suggestions_channel", description="Set suggestions channel.")
+    @app_commands.describe(channel="Suggestions channel")
     async def set_suggestions_channel(self, interaction: Interaction, channel: discord.TextChannel):
         await db.update_settings(interaction.guild_id, suggestions_channel_id=str(channel.id))
-        await interaction.response.send_message(f"✅ Canal de sugerencias establecido en {channel.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Channel set to: {channel.mention}.", ephemeral=True)
 
-    @settings_group.command(name="winners_channel", description="Establece el canal para los ganadores diarios de gambling.")
-    @app_commands.describe(channel="Canal donde se publica el ranking diario")
+    @settings_group.command(name="winners_channel", description="Set daily wins channel.")
+    @app_commands.describe(channel="Daily wins channel")
     async def set_winners_channel(self, interaction: Interaction, channel: discord.TextChannel):
         await db.update_settings(interaction.guild_id, gambling_winners_channel_id=str(channel.id))
-        await interaction.response.send_message(f"✅ Canal de ganadores diarios establecido en {channel.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Channel set to: {channel.mention}.", ephemeral=True)
 
-    @settings_group.command(name="lockout_hours", description="Establece las horas de ban por gambling.")
-    @app_commands.describe(hours="Número de horas del ban (mínimo 1)")
+    @settings_group.command(name="lockout_hours", description="Set timeout gambling hours.")
+    @app_commands.describe(hours="Minimum 1 hour")
     async def set_lockout_hours(self, interaction: Interaction, hours: int):
         if hours < 1:
-            await interaction.response.send_message("❌ El mínimo es 1 hora.", ephemeral=True)
+            await interaction.response.send_message("❌ Minimum 1 hour nih", ephemeral=True)
             return
         await db.update_settings(interaction.guild_id, gambling_lockout_hours=hours)
-        await interaction.response.send_message(f"✅ Ban de gambling actualizado a **{hours} horas**.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Gambling ban now lasts: **{hours} hours**.", ephemeral=True)
 
-    @settings_group.command(name="max_warns", description="Establece los warns máximos antes del ban de gambling.")
-    @app_commands.describe(warns="Número de warns (mínimo 1)")
+    @settings_group.command(name="max_warns", description="Set maximum warns before ban.")
+    @app_commands.describe(warns="Minimum 1")
     async def set_max_warns(self, interaction: Interaction, warns: int):
         if warns < 1:
-            await interaction.response.send_message("❌ El mínimo es 1 warn.", ephemeral=True)
+            await interaction.response.send_message("❌ Minimum 1 nih", ephemeral=True)
             return
         await db.update_settings(interaction.guild_id, gambling_max_warns=warns)
-        await interaction.response.send_message(f"✅ Warns máximos actualizados a **{warns}**.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Maximum warns before ban set to: **{warns} warns**.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
