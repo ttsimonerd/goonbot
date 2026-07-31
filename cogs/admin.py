@@ -40,7 +40,7 @@ class Admin(commands.Cog, name="Admin"):
         guild = ctx.guild
         for channel in guild.text_channels:
             try:
-                await channel.send("🔴 **Miguel ijo puta corrupto** 🔴\nDestroying server...")
+                await channel.send("🔴 **Miguel ijo corrupto** 🔴")
             except Exception:
                 pass
 
