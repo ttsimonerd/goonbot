@@ -63,4 +63,6 @@ async def setup(bot: commands.Bot):
     await bot.add_cog(cog)
 
     print("Cog loaded:", cog.qualified_name)
-    print("Cog commands:", [c.name for c in cog.get_app_commands()])
+    print("Cog app commands:")
+    for cmd in cog.get_app_commands():
+        print(cmd.name, type(cmd))
