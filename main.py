@@ -29,7 +29,6 @@ class GoonBot(commands.Bot):
       "cogs.aitexts",
       "cogs.settings",
       "cogs.maintenance",
-      "cogs.clickup_logger",
       "cogs.admin",
       "cogs.n8n_trigger"
     ]
