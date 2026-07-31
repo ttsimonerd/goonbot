@@ -29,7 +29,7 @@ class Fun(commands.Cog, name="Fun"):
     async def rape(self, ctx, user: discord.Member = None):  # type: ignore
 
         rapes = [
-            "Imma Rape You Nigga", "Ur gonna get raped", "Vas a rape"
+            "Imma Rape You Nih", "Ur gonna get raped", "Vas a rape"
         ]
 
         target = user or ctx.author
@@ -75,17 +75,24 @@ class Fun(commands.Cog, name="Fun"):
                 pass
 
         ataques = [
-            "{user} NIGGA",
-            "{user} STUPID NIGGER",
-            "{user} RAMPAGED NIGGER",
+            "{user} Dise bro bro bro",
+            "{user} Lol :sob:",
+            "{user} Sonbrero :sob:",
         ]
 
         for ataque in ataques:
             await ctx.send(ataque.replace("{user}", target.mention))
 
         gifs = [
-            "https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExZTM2cGRvbDBjaWE1cHJudXVmdTZodmpjd3JybjI4MXowczJkMWVkaSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/fl0B5TLMTYLPvNervP/giphy.gif",
-            "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExcHN2ZW9lc2doc2xndGFzNHpzNnF4ZXQyZjl0Y3F1MWRwNnV5cndpdyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/wrmVCNbpOyqgJ9zQTn/giphy.gif",
+            "https://klipy.com/gifs/tusmu-pez",
+            "https://klipy.com/gifs/son-im-crine-8",
+            "https://klipy.com/gifs/yuji-11",
+            "https://klipy.com/gifs/reinteller-meme",
+            "https://klipy.com/gifs/crine-im-crine",
+            "https://klipy.com/gifs/goon-pigeon",
+            "https://klipy.com/gifs/fat-ayanokoji",
+            "https://klipy.com/gifs/companion-meme-2",
+            "https://klipy.com/gifs/descendant-meme"
         ]
 
         await ctx.send(random.choice(gifs))
