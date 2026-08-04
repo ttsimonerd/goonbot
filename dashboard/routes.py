@@ -1,8 +1,7 @@
 from pathlib import Path
-from fastapi import HTTPException
 
 import discord
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
