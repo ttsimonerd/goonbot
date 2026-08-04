@@ -1,7 +1,8 @@
+import os
 from pathlib import Path
 
 import discord
-from fastapi import APIRouter, Form, Request, HTTPException
+from fastapi import APIRouter, Form, Request, HTTPException, Header
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -230,18 +231,33 @@ async def admin_kill_switch(
     return RedirectResponse(url="/admin", status_code=303)
 
 @router.post("/api/member/exists")
-async def member_exists(request: Request, body: dict):
+async def member_exists(
+    request: Request,
+    body: dict,
+    x_api_key: str | None = Header(default=None),
+):
+    # Authenticate the request
+    expected_key = os.getenv("GOONBOT_API_KEY")
+
+    if expected_key is None:
+        raise HTTPException(status_code=500, detail="GOONBOT_API_KEY is not configured.")
+
+    if x_api_key != expected_key:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     bot = request.app.state.bot
 
     guild = bot.get_guild(GUILD_ID)
     if guild is None:
         raise HTTPException(status_code=503, detail="Guild not available")
 
+    # Validate input
     try:
         discord_id = int(body["discordUserId"])
-    except (KeyError, ValueError):
+    except (KeyError, ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid discordUserId")
 
+    # Search member
     member = guild.get_member(discord_id)
 
     if member is None:
