@@ -1,4 +1,5 @@
 from pathlib import Path
+from fastapi import HTTPException
 
 import discord
 from fastapi import APIRouter, Form, Request
@@ -228,3 +229,31 @@ async def admin_kill_switch(
 
     await db.set_sending_enabled(enabled == "true")
     return RedirectResponse(url="/admin", status_code=303)
+
+@router.post("/api/member/exists")
+async def member_exists(request: Request, body: dict):
+    bot = request.app.state.bot
+
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        raise HTTPException(status_code=503, detail="Guild not available")
+
+    try:
+        discord_id = int(body["discordUserId"])
+    except (KeyError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid discordUserId")
+
+    member = guild.get_member(discord_id)
+
+    if member is None:
+        return {
+            "exists": False
+        }
+
+    return {
+        "exists": True,
+        "id": member.id,
+        "username": member.name,
+        "display_name": member.display_name,
+        "bot": member.bot
+    }
