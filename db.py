@@ -1,6 +1,6 @@
 """
-Async SQLite layer for GoonBot's economy, gambling settings, and votebet
-predictions. Replaces gambling_data.json / settings.json.
+Async SQLite layer for GoonBot's economy, gambling settings, votebet
+predictions, dashboard, and music system.
 
 One shared connection (WAL mode, so reads don't block on writes) plus an
 asyncio.Lock around writes, since SQLite only wants one writer at a time
@@ -88,17 +88,158 @@ CREATE TABLE IF NOT EXISTS dashboard_config (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+
+-- -------------------------------------------------------------------------
+-- Music system
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS music_songs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    url TEXT NOT NULL,
+    normalized_url TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    is_original INTEGER NOT NULL DEFAULT 0,
+    elo INTEGER NOT NULL DEFAULT 0,
+    peak_elo INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    deleted_at TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_music_songs_guild_url
+ON music_songs (guild_id, normalized_url);
+
+CREATE INDEX IF NOT EXISTS idx_music_songs_guild
+ON music_songs (guild_id);
+
+CREATE INDEX IF NOT EXISTS idx_music_songs_owner
+ON music_songs (guild_id, owner_id);
+
+CREATE INDEX IF NOT EXISTS idx_music_songs_elo
+ON music_songs (guild_id, elo DESC);
+
+CREATE TABLE IF NOT EXISTS music_battles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    song_a_id INTEGER NOT NULL,
+    song_b_id INTEGER NOT NULL,
+    battle_type TEXT NOT NULL DEFAULT 'normal',
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    winner_song_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'pending',
+    channel_id TEXT,
+    message_id TEXT,
+    FOREIGN KEY (song_a_id) REFERENCES music_songs(id),
+    FOREIGN KEY (song_b_id) REFERENCES music_songs(id),
+    FOREIGN KEY (winner_song_id) REFERENCES music_songs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_music_battles_guild
+ON music_battles (guild_id);
+
+CREATE INDEX IF NOT EXISTS idx_music_battles_song_a
+ON music_battles (song_a_id);
+
+CREATE INDEX IF NOT EXISTS idx_music_battles_song_b
+ON music_battles (song_b_id);
+
+CREATE INDEX IF NOT EXISTS idx_music_battles_status
+ON music_battles (guild_id, status);
+
+CREATE TABLE IF NOT EXISTS music_votes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    battle_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    song_id INTEGER NOT NULL,
+    voted_at TEXT NOT NULL,
+    FOREIGN KEY (battle_id) REFERENCES music_battles(id),
+    FOREIGN KEY (song_id) REFERENCES music_songs(id),
+    UNIQUE (battle_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_music_votes_battle
+ON music_votes (battle_id);
+
+CREATE INDEX IF NOT EXISTS idx_music_votes_user
+ON music_votes (guild_id, user_id);
+
+CREATE TABLE IF NOT EXISTS music_ownership (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    song_id INTEGER NOT NULL,
+    owner_id TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    lost_at TEXT,
+    acquisition_type TEXT NOT NULL DEFAULT 'original',
+    claim_battle_id INTEGER,
+    FOREIGN KEY (song_id) REFERENCES music_songs(id),
+    FOREIGN KEY (claim_battle_id) REFERENCES music_battles(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_music_ownership_song
+ON music_ownership (guild_id, song_id);
+
+CREATE INDEX IF NOT EXISTS idx_music_ownership_owner
+ON music_ownership (guild_id, owner_id);
+
+CREATE TABLE IF NOT EXISTS music_sotd (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    song_id INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    positive_votes INTEGER NOT NULL DEFAULT 0,
+    negative_votes INTEGER NOT NULL DEFAULT 0,
+    elo_change INTEGER NOT NULL DEFAULT 0,
+    boost INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (song_id) REFERENCES music_songs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_music_sotd_guild
+ON music_sotd (guild_id);
+
+CREATE INDEX IF NOT EXISTS idx_music_sotd_song
+ON music_sotd (guild_id, song_id);
+
+CREATE TABLE IF NOT EXISTS music_elo_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    song_id INTEGER NOT NULL,
+    old_elo INTEGER NOT NULL,
+    new_elo INTEGER NOT NULL,
+    change INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    reference_id INTEGER,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (song_id) REFERENCES music_songs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_music_elo_history_song
+ON music_elo_history (guild_id, song_id);
+
+CREATE INDEX IF NOT EXISTS idx_music_elo_history_created
+ON music_elo_history (guild_id, created_at DESC);
 """
 
 
 async def init_db() -> None:
-    """Call once on bot startup (setup_hook), before any cog touches the DB."""
+    """Call once on bot startup before any cog touches the DB."""
     global _connection
+
     directory = os.path.dirname(DB_PATH)
     if directory:
         os.makedirs(directory, exist_ok=True)
+
     _connection = await aiosqlite.connect(DB_PATH)
+
     await _connection.execute("PRAGMA journal_mode=WAL;")
+    await _connection.execute("PRAGMA foreign_keys=ON;")
+
     await _connection.executescript(SCHEMA)
     await _connection.commit()
 
@@ -106,6 +247,7 @@ async def init_db() -> None:
 async def close_db() -> None:
     """Call on bot shutdown so aiosqlite's background thread exits cleanly."""
     global _connection
+
     if _connection is not None:
         await _connection.close()
         _connection = None
@@ -113,7 +255,10 @@ async def close_db() -> None:
 
 def _conn() -> aiosqlite.Connection:
     if _connection is None:
-        raise RuntimeError("Database not initialized — call init_db() on startup.")
+        raise RuntimeError(
+            "Database not initialized — call init_db() on startup."
+        )
+
     return _connection
 
 
@@ -121,76 +266,127 @@ def _conn() -> aiosqlite.Connection:
 # Economy (money / warns / lockout / daily claim)
 # ---------------------------------------------------------------------------
 
-DEFAULT_USER = {"money": 100, "warns": 0, "locked_until": None, "daily_claimed": None}
+DEFAULT_USER = {
+    "money": 100,
+    "warns": 0,
+    "locked_until": None,
+    "daily_claimed": None,
+}
 
 
 async def get_user(guild_id: int, user_id: int) -> dict[str, Any]:
     db = _conn()
+
     cursor = await db.execute(
-        "SELECT money, warns, locked_until, daily_claimed FROM economy WHERE guild_id = ? AND user_id = ?",
+        "SELECT money, warns, locked_until, daily_claimed "
+        "FROM economy WHERE guild_id = ? AND user_id = ?",
         (str(guild_id), str(user_id)),
     )
+
     row = await cursor.fetchone()
+
     if row is None:
         async with _write_lock:
             await db.execute(
-                "INSERT OR IGNORE INTO economy (guild_id, user_id, money, warns, locked_until, daily_claimed) "
+                "INSERT OR IGNORE INTO economy "
+                "(guild_id, user_id, money, warns, locked_until, daily_claimed) "
                 "VALUES (?, ?, 100, 0, NULL, NULL)",
                 (str(guild_id), str(user_id)),
             )
             await db.commit()
+
         return dict(DEFAULT_USER)
-    return {"money": row[0], "warns": row[1], "locked_until": row[2], "daily_claimed": row[3]}
+
+    return {
+        "money": row[0],
+        "warns": row[1],
+        "locked_until": row[2],
+        "daily_claimed": row[3],
+    }
 
 
-async def update_user(guild_id: int, user_id: int, **fields: Any) -> None:
+async def update_user(
+    guild_id: int,
+    user_id: int,
+    **fields: Any,
+) -> None:
     """Partial update, e.g. update_user(gid, uid, money=150, warns=0)."""
     if not fields:
         return
-    await get_user(guild_id, user_id)  # ensures the row exists
+
+    await get_user(guild_id, user_id)
+
     columns = ", ".join(f"{key} = ?" for key in fields)
     values = list(fields.values()) + [str(guild_id), str(user_id)]
+
     db = _conn()
+
     async with _write_lock:
         await db.execute(
-            f"UPDATE economy SET {columns} WHERE guild_id = ? AND user_id = ?", values
+            f"UPDATE economy SET {columns} "
+            "WHERE guild_id = ? AND user_id = ?",
+            values,
         )
         await db.commit()
 
 
-async def add_money(guild_id: int, user_id: int, amount: int) -> int:
-    """Adds (or subtracts, if negative) coins, floored at 0. Returns new balance.
+async def add_money(
+    guild_id: int,
+    user_id: int,
+    amount: int,
+) -> int:
+    """
+    Adds (or subtracts, if negative) coins, floored at 0.
+    Returns new balance.
 
-    Does the read-modify-write as a single locked SQL UPDATE (not read-then-write
-    in Python) so concurrent calls for the same user — e.g. rapid button mashing
-    on a game view — can't race and silently drop updates."""
+    Does the read-modify-write as a single locked SQL UPDATE so concurrent
+    calls for the same user cannot race and silently drop updates.
+    """
     db_conn = _conn()
+
     async with _write_lock:
         await db_conn.execute(
-            "INSERT OR IGNORE INTO economy (guild_id, user_id, money, warns, locked_until, daily_claimed) "
+            "INSERT OR IGNORE INTO economy "
+            "(guild_id, user_id, money, warns, locked_until, daily_claimed) "
             "VALUES (?, ?, 100, 0, NULL, NULL)",
             (str(guild_id), str(user_id)),
         )
+
         await db_conn.execute(
-            "UPDATE economy SET money = MAX(0, money + ?) WHERE guild_id = ? AND user_id = ?",
+            "UPDATE economy "
+            "SET money = MAX(0, money + ?) "
+            "WHERE guild_id = ? AND user_id = ?",
             (amount, str(guild_id), str(user_id)),
         )
+
         cursor = await db_conn.execute(
-            "SELECT money FROM economy WHERE guild_id = ? AND user_id = ?",
+            "SELECT money FROM economy "
+            "WHERE guild_id = ? AND user_id = ?",
             (str(guild_id), str(user_id)),
         )
+
         row = await cursor.fetchone()
+
         await db_conn.commit()
+
         return row[0]
 
 
-async def get_top_balances(guild_id: int, limit: int = 5) -> list[tuple[str, int]]:
+async def get_top_balances(
+    guild_id: int,
+    limit: int = 5,
+) -> list[tuple[str, int]]:
     db = _conn()
+
     cursor = await db.execute(
-        "SELECT user_id, money FROM economy WHERE guild_id = ? ORDER BY money DESC LIMIT ?",
+        "SELECT user_id, money FROM economy "
+        "WHERE guild_id = ? "
+        "ORDER BY money DESC LIMIT ?",
         (str(guild_id), limit),
     )
+
     rows = await cursor.fetchall()
+
     return [(row[0], row[1]) for row in rows]
 
 
@@ -209,17 +405,27 @@ DEFAULT_SETTINGS = {
 
 async def get_settings(guild_id: int) -> dict[str, Any]:
     db = _conn()
+
     cursor = await db.execute(
-        "SELECT gambling_channel_id, gambling_lockout_hours, gambling_max_warns, "
-        "gambling_winners_channel_id, suggestions_channel_id FROM settings WHERE guild_id = ?",
+        "SELECT gambling_channel_id, gambling_lockout_hours, "
+        "gambling_max_warns, gambling_winners_channel_id, "
+        "suggestions_channel_id "
+        "FROM settings WHERE guild_id = ?",
         (str(guild_id),),
     )
+
     row = await cursor.fetchone()
+
     if row is None:
         async with _write_lock:
-            await db.execute("INSERT OR IGNORE INTO settings (guild_id) VALUES (?)", (str(guild_id),))
+            await db.execute(
+                "INSERT OR IGNORE INTO settings (guild_id) VALUES (?)",
+                (str(guild_id),),
+            )
             await db.commit()
+
         return dict(DEFAULT_SETTINGS)
+
     return {
         "gambling_channel_id": int(row[0]) if row[0] else None,
         "gambling_lockout_hours": row[1],
@@ -229,15 +435,25 @@ async def get_settings(guild_id: int) -> dict[str, Any]:
     }
 
 
-async def update_settings(guild_id: int, **fields: Any) -> None:
+async def update_settings(
+    guild_id: int,
+    **fields: Any,
+) -> None:
     if not fields:
         return
-    await get_settings(guild_id)  # ensures the row exists
+
+    await get_settings(guild_id)
+
     columns = ", ".join(f"{key} = ?" for key in fields)
     values = list(fields.values()) + [str(guild_id)]
+
     db = _conn()
+
     async with _write_lock:
-        await db.execute(f"UPDATE settings SET {columns} WHERE guild_id = ?", values)
+        await db.execute(
+            f"UPDATE settings SET {columns} WHERE guild_id = ?",
+            values,
+        )
         await db.commit()
 
 
@@ -245,43 +461,69 @@ async def update_settings(guild_id: int, **fields: Any) -> None:
 # Predictions (votebet)
 # ---------------------------------------------------------------------------
 
-async def create_prediction(guild_id: int, bet_id: str, **fields: Any) -> None:
+async def create_prediction(
+    guild_id: int,
+    bet_id: str,
+    **fields: Any,
+) -> None:
     db = _conn()
+
     columns = ["guild_id", "bet_id"] + list(fields.keys())
     placeholders = ", ".join("?" for _ in columns)
     values = [str(guild_id), bet_id] + list(fields.values())
+
     async with _write_lock:
         await db.execute(
-            f"INSERT INTO predictions ({', '.join(columns)}) VALUES ({placeholders})", values
+            f"INSERT INTO predictions ({', '.join(columns)}) "
+            f"VALUES ({placeholders})",
+            values,
         )
         await db.commit()
 
 
-async def update_prediction(guild_id: int, bet_id: str, **fields: Any) -> None:
+async def update_prediction(
+    guild_id: int,
+    bet_id: str,
+    **fields: Any,
+) -> None:
     if not fields:
         return
+
     columns = ", ".join(f"{key} = ?" for key in fields)
     values = list(fields.values()) + [str(guild_id), bet_id]
+
     db = _conn()
+
     async with _write_lock:
         await db.execute(
-            f"UPDATE predictions SET {columns} WHERE guild_id = ? AND bet_id = ?", values
+            f"UPDATE predictions SET {columns} "
+            "WHERE guild_id = ? AND bet_id = ?",
+            values,
         )
         await db.commit()
 
 
-async def get_predictions(guild_id: int, include_settled: bool = True) -> list[dict[str, Any]]:
+async def get_predictions(
+    guild_id: int,
+    include_settled: bool = True,
+) -> list[dict[str, Any]]:
     db = _conn()
+
     query = (
-        "SELECT bet_id, creator_id, description, amount, days, created_at, resolve_at, "
-        "multiplier, success_chance, settled, result, channel_id, message_id "
+        "SELECT bet_id, creator_id, description, amount, days, "
+        "created_at, resolve_at, multiplier, success_chance, settled, "
+        "result, channel_id, message_id "
         "FROM predictions WHERE guild_id = ?"
     )
+
     params: list[Any] = [str(guild_id)]
+
     if not include_settled:
         query += " AND settled = 0"
+
     cursor = await db.execute(query, params)
     rows = await cursor.fetchall()
+
     return [
         {
             "bet_id": r[0],
@@ -309,41 +551,61 @@ async def get_predictions(guild_id: int, include_settled: bool = True) -> list[d
 DAILY_MESSAGE_LIMIT = 3
 
 
-async def upsert_dashboard_user(discord_id: int, username: str, avatar_url: str | None) -> None:
+async def upsert_dashboard_user(
+    discord_id: int,
+    username: str,
+    avatar_url: str | None,
+) -> None:
     db = _conn()
+
     async with _write_lock:
         await db.execute(
-            "INSERT INTO dashboard_users (discord_id, username, avatar_url, messages_used_today, last_reset_date) "
+            "INSERT INTO dashboard_users "
+            "(discord_id, username, avatar_url, messages_used_today, "
+            "last_reset_date) "
             "VALUES (?, ?, ?, 0, NULL) "
-            "ON CONFLICT(discord_id) DO UPDATE SET username = excluded.username, avatar_url = excluded.avatar_url",
+            "ON CONFLICT(discord_id) DO UPDATE SET "
+            "username = excluded.username, "
+            "avatar_url = excluded.avatar_url",
             (str(discord_id), username, avatar_url),
         )
         await db.commit()
 
 
-async def get_dashboard_user(discord_id: int) -> dict[str, Any] | None:
-    """Returns the user with the daily counter already reset if a new day has
-    started — callers never need to think about the reset separately."""
-
+async def get_dashboard_user(
+    discord_id: int,
+) -> dict[str, Any] | None:
+    """
+    Returns the user with the daily counter already reset if a new day has
+    started — callers never need to think about the reset separately.
+    """
     db = _conn()
+
     cursor = await db.execute(
-        "SELECT discord_id, username, avatar_url, messages_used_today, last_reset_date "
+        "SELECT discord_id, username, avatar_url, "
+        "messages_used_today, last_reset_date "
         "FROM dashboard_users WHERE discord_id = ?",
         (str(discord_id),),
     )
+
     row = await cursor.fetchone()
+
     if row is None:
         return None
 
     today = datetime.date.today().isoformat()
     messages_used_today = row[3]
+
     if row[4] != today:
         async with _write_lock:
             await db.execute(
-                "UPDATE dashboard_users SET messages_used_today = 0, last_reset_date = ? WHERE discord_id = ?",
+                "UPDATE dashboard_users "
+                "SET messages_used_today = 0, last_reset_date = ? "
+                "WHERE discord_id = ?",
                 (today, str(discord_id)),
             )
             await db.commit()
+
         messages_used_today = 0
 
     return {
@@ -351,15 +613,21 @@ async def get_dashboard_user(discord_id: int) -> dict[str, Any] | None:
         "username": row[1],
         "avatar_url": row[2],
         "messages_used_today": messages_used_today,
-        "messages_remaining": max(0, DAILY_MESSAGE_LIMIT - messages_used_today),
+        "messages_remaining": max(
+            0,
+            DAILY_MESSAGE_LIMIT - messages_used_today,
+        ),
     }
 
 
 async def increment_messages_used(discord_id: int) -> None:
     db = _conn()
+
     async with _write_lock:
         await db.execute(
-            "UPDATE dashboard_users SET messages_used_today = messages_used_today + 1 WHERE discord_id = ?",
+            "UPDATE dashboard_users "
+            "SET messages_used_today = messages_used_today + 1 "
+            "WHERE discord_id = ?",
             (str(discord_id),),
         )
         await db.commit()
@@ -369,72 +637,144 @@ async def increment_messages_used(discord_id: int) -> None:
 # Message logs
 # ---------------------------------------------------------------------------
 
-async def log_message(discord_id: int, channel_key: str, content: str) -> None:
-
+async def log_message(
+    discord_id: int,
+    channel_key: str,
+    content: str,
+) -> None:
     db = _conn()
+
     async with _write_lock:
         await db.execute(
-            "INSERT INTO message_logs (discord_id, channel_key, content, sent_at) VALUES (?, ?, ?, ?)",
-            (str(discord_id), channel_key, content, datetime.datetime.utcnow().isoformat()),
+            "INSERT INTO message_logs "
+            "(discord_id, channel_key, content, sent_at) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                str(discord_id),
+                channel_key,
+                content,
+                datetime.datetime.utcnow().isoformat(),
+            ),
         )
         await db.commit()
 
 
-async def get_recent_messages(discord_id: int, limit: int = 10) -> list[dict[str, Any]]:
+async def get_recent_messages(
+    discord_id: int,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
     db = _conn()
+
     cursor = await db.execute(
-        "SELECT channel_key, content, sent_at FROM message_logs "
-        "WHERE discord_id = ? ORDER BY id DESC LIMIT ?",
+        "SELECT channel_key, content, sent_at "
+        "FROM message_logs "
+        "WHERE discord_id = ? "
+        "ORDER BY id DESC LIMIT ?",
         (str(discord_id), limit),
     )
+
     rows = await cursor.fetchall()
-    return [{"channel_key": r[0], "content": r[1], "sent_at": r[2]} for r in rows]
+
+    return [
+        {
+            "channel_key": r[0],
+            "content": r[1],
+            "sent_at": r[2],
+        }
+        for r in rows
+    ]
 
 
-async def get_all_message_logs(limit: int = 100) -> list[dict[str, Any]]:
-    """For the admin moderation view — every user's sent messages, newest first."""
+async def get_all_message_logs(
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """For the admin moderation view — newest first."""
     db = _conn()
+
     cursor = await db.execute(
-        "SELECT ml.discord_id, du.username, ml.channel_key, ml.content, ml.sent_at "
-        "FROM message_logs ml LEFT JOIN dashboard_users du ON ml.discord_id = du.discord_id "
+        "SELECT ml.discord_id, du.username, ml.channel_key, "
+        "ml.content, ml.sent_at "
+        "FROM message_logs ml "
+        "LEFT JOIN dashboard_users du "
+        "ON ml.discord_id = du.discord_id "
         "ORDER BY ml.id DESC LIMIT ?",
         (limit,),
     )
+
     rows = await cursor.fetchall()
+
     return [
-        {"discord_id": r[0], "username": r[1] or f"User {r[0]}", "channel_key": r[2], "content": r[3], "sent_at": r[4]}
+        {
+            "discord_id": r[0],
+            "username": r[1] or f"User {r[0]}",
+            "channel_key": r[2],
+            "content": r[3],
+            "sent_at": r[4],
+        }
         for r in rows
     ]
 
 
 # ---------------------------------------------------------------------------
-# Allowed channels (managed from the admin GUI — dashboard never exposes
-# raw channel IDs to end users, only these labels/keys)
+# Allowed channels
 # ---------------------------------------------------------------------------
 
 async def get_allowed_channels() -> list[dict[str, Any]]:
     db = _conn()
-    cursor = await db.execute("SELECT channel_key, channel_id, label FROM allowed_channels ORDER BY label")
-    rows = await cursor.fetchall()
-    return [{"channel_key": r[0], "channel_id": int(r[1]), "label": r[2]} for r in rows]
 
-
-async def get_allowed_channel(channel_key: str) -> dict[str, Any] | None:
-    db = _conn()
     cursor = await db.execute(
-        "SELECT channel_key, channel_id, label FROM allowed_channels WHERE channel_key = ?", (channel_key,)
+        "SELECT channel_key, channel_id, label "
+        "FROM allowed_channels ORDER BY label"
     )
+
+    rows = await cursor.fetchall()
+
+    return [
+        {
+            "channel_key": r[0],
+            "channel_id": int(r[1]),
+            "label": r[2],
+        }
+        for r in rows
+    ]
+
+
+async def get_allowed_channel(
+    channel_key: str,
+) -> dict[str, Any] | None:
+    db = _conn()
+
+    cursor = await db.execute(
+        "SELECT channel_key, channel_id, label "
+        "FROM allowed_channels "
+        "WHERE channel_key = ?",
+        (channel_key,),
+    )
+
     row = await cursor.fetchone()
+
     if row is None:
         return None
-    return {"channel_key": row[0], "channel_id": int(row[1]), "label": row[2]}
+
+    return {
+        "channel_key": row[0],
+        "channel_id": int(row[1]),
+        "label": row[2],
+    }
 
 
-async def add_allowed_channel(channel_key: str, channel_id: int, label: str) -> None:
+async def add_allowed_channel(
+    channel_key: str,
+    channel_id: int,
+    label: str,
+) -> None:
     db = _conn()
+
     async with _write_lock:
         await db.execute(
-            "INSERT OR REPLACE INTO allowed_channels (channel_key, channel_id, label) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO allowed_channels "
+            "(channel_key, channel_id, label) "
+            "VALUES (?, ?, ?)",
             (channel_key, str(channel_id), label),
         )
         await db.commit()
@@ -442,8 +782,12 @@ async def add_allowed_channel(channel_key: str, channel_id: int, label: str) -> 
 
 async def remove_allowed_channel(channel_key: str) -> None:
     db = _conn()
+
     async with _write_lock:
-        await db.execute("DELETE FROM allowed_channels WHERE channel_key = ?", (channel_key,))
+        await db.execute(
+            "DELETE FROM allowed_channels WHERE channel_key = ?",
+            (channel_key,),
+        )
         await db.commit()
 
 
@@ -451,28 +795,49 @@ async def remove_allowed_channel(channel_key: str) -> None:
 # Dashboard config (kill switch, etc — simple key/value store)
 # ---------------------------------------------------------------------------
 
-async def get_config(key: str, default: str | None = None) -> str | None:
+async def get_config(
+    key: str,
+    default: str | None = None,
+) -> str | None:
     db = _conn()
-    cursor = await db.execute("SELECT value FROM dashboard_config WHERE key = ?", (key,))
+
+    cursor = await db.execute(
+        "SELECT value FROM dashboard_config WHERE key = ?",
+        (key,),
+    )
+
     row = await cursor.fetchone()
+
     return row[0] if row else default
 
 
-async def set_config(key: str, value: str) -> None:
+async def set_config(
+    key: str,
+    value: str,
+) -> None:
     db = _conn()
+
     async with _write_lock:
         await db.execute(
-            "INSERT INTO dashboard_config (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            "INSERT INTO dashboard_config (key, value) "
+            "VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET "
+            "value = excluded.value",
             (key, value),
         )
         await db.commit()
 
 
 async def is_sending_enabled() -> bool:
-    value = await get_config("sending_enabled", default="true")
+    value = await get_config(
+        "sending_enabled",
+        default="true",
+    )
     return value == "true"
 
 
 async def set_sending_enabled(enabled: bool) -> None:
-    await set_config("sending_enabled", "true" if enabled else "false")
+    await set_config(
+        "sending_enabled",
+        "true" if enabled else "false",
+    )

@@ -20,6 +20,7 @@ intents.message_content = True
 class GoonBot(commands.Bot):
   async def setup_hook(self):
     extensions = [
+      "cogs.music",
       "cogs.admin",
       "cogs.aitexts",
       "cogs.fun",
