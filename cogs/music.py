@@ -331,8 +331,9 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             await interaction.followup.send("Solo disponible en servidores.", ephemeral=True)
             return
         cur = await db._conn().execute(
-            "SELECT mb.id,mb.battle_type,mb.started_at,mb.winner_song_id,"
-            "a.title,a.artist,a.owner_id,b.title,b.artist,b.owner_id "
+            "SELECT mb.id, mb.battle_type, mb.started_at, mb.winner_song_id, "
+            "mb.song_a_id, mb.song_b_id, "
+            "a.title, a.artist, a.owner_id, b.title, b.artist, b.owner_id "
             "FROM music_battles mb JOIN music_songs a ON a.id=mb.song_a_id "
             "JOIN music_songs b ON b.id=mb.song_b_id "
             "WHERE mb.guild_id=? AND mb.status='finished' ORDER BY mb.id DESC LIMIT 10",
@@ -345,16 +346,19 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         else:
             lines = []
             for r in rows:
-                winner = r[4] if r[3] == r[0] else (r[7] if r[3] else "—")
-                # winner_song_id is a song id, so look it up from the two candidates.
-                if r[3] == r[0]:
-                    winner = r[4]
-                elif r[3] and r[3] == await self._song_id_by_title_pair(interaction.guild_id, r[7], r[8]):
-                    winner = r[7]
+                winner_id = r[3]
+                song_a_id = r[4]
+                song_b_id = r[5]
+                title_a = r[6]
+                title_b = r[9]
+                if winner_id == song_a_id:
+                    winner_title = title_a
+                elif winner_id == song_b_id:
+                    winner_title = title_b
                 else:
-                    winner = r[4] if r[3] else "Empate"
+                    winner_title = "Empate"
                 icon = "⚔️" if r[1] == "normal" else "👑"
-                lines.append(f"{icon} **#{r[0]}** — {r[4]} vs {r[7]} → **{winner}**")
+                lines.append(f"{icon} **#{r[0]}** — {title_a} vs {title_b} → **{winner_title}**")
             embed.description = "\n".join(lines)
         embed.set_footer(text="Últimas 10 batallas")
         await interaction.followup.send(embed=embed, ephemeral=True)

@@ -18,6 +18,10 @@ class Settings(commands.Cog, name="Settings"):
 
     @settings_group.command(name="view", description="Show current config")
     async def view(self, interaction: Interaction):
+        if interaction.guild is None or interaction.guild_id is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
+
         data = await db.get_settings(interaction.guild_id)
 
         gambling_ch = interaction.guild.get_channel(data["gambling_channel_id"]) if data["gambling_channel_id"] else None
@@ -47,24 +51,36 @@ class Settings(commands.Cog, name="Settings"):
     @settings_group.command(name="gambling_channel", description="Set gambling channel.")
     @app_commands.describe(channel="Gambling channel")
     async def set_gambling_channel(self, interaction: Interaction, channel: discord.TextChannel):
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
         await db.update_settings(interaction.guild_id, gambling_channel_id=str(channel.id))
         await interaction.response.send_message(f"✅ Channel set to: {channel.mention}.", ephemeral=True)
 
     @settings_group.command(name="suggestions_channel", description="Set suggestions channel.")
     @app_commands.describe(channel="Suggestions channel")
     async def set_suggestions_channel(self, interaction: Interaction, channel: discord.TextChannel):
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
         await db.update_settings(interaction.guild_id, suggestions_channel_id=str(channel.id))
         await interaction.response.send_message(f"✅ Channel set to: {channel.mention}.", ephemeral=True)
 
     @settings_group.command(name="winners_channel", description="Set daily wins channel.")
     @app_commands.describe(channel="Daily wins channel")
     async def set_winners_channel(self, interaction: Interaction, channel: discord.TextChannel):
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
         await db.update_settings(interaction.guild_id, gambling_winners_channel_id=str(channel.id))
         await interaction.response.send_message(f"✅ Channel set to: {channel.mention}.", ephemeral=True)
 
     @settings_group.command(name="lockout_hours", description="Set timeout gambling hours.")
     @app_commands.describe(hours="Minimum 1 hour")
     async def set_lockout_hours(self, interaction: Interaction, hours: int):
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
         if hours < 1:
             await interaction.response.send_message("❌ Minimum 1 hour nih", ephemeral=True)
             return
@@ -74,6 +90,9 @@ class Settings(commands.Cog, name="Settings"):
     @settings_group.command(name="max_warns", description="Set maximum warns before ban.")
     @app_commands.describe(warns="Minimum 1")
     async def set_max_warns(self, interaction: Interaction, warns: int):
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
         if warns < 1:
             await interaction.response.send_message("❌ Minimum 1 nih", ephemeral=True)
             return

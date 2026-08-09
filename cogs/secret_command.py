@@ -20,6 +20,13 @@ class PasswordModal(ui.Modal, title="Autenticación requerida"):
     )
 
     async def on_submit(self, interaction: Interaction):
+        if not PASSWORD:
+            await interaction.response.send_message(
+                "❌ SECRET_CMD_PASSWORD no está configurada en el servidor.",
+                ephemeral=True
+            )
+            return
+
         user_input = str(self.password.value).strip()
 
         if user_input != PASSWORD:
@@ -49,11 +56,17 @@ class SecretCommand(commands.Cog):
         description="Comando reservado únicamente para el administrador autorizado."
     )
     async def secret(self, interaction: Interaction):
-
         # Solo tú puedes usarlo
         if interaction.user.id != ALLOWED_USER_ID:
             await interaction.response.send_message(
                 "No tienes permiso para usar este comando.",
+                ephemeral=True
+            )
+            return
+
+        if not PASSWORD:
+            await interaction.response.send_message(
+                "❌ SECRET_CMD_PASSWORD no está configurada en el servidor.",
                 ephemeral=True
             )
             return

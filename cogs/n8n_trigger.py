@@ -16,11 +16,11 @@ class N8N(commands.Cog, name="N8N"):
     async def trigger(self, interaction: discord.Interaction):
         if not N8N_WEBHOOK_URL:
             await interaction.response.send_message(
-                "❌ Request error", ephemeral=True
+                "❌ Request error: N8N_WEBHOOK_URL not configured", ephemeral=True
             )
             return
 
-        await interaction.response.defer(thinking=True, ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
 
         payload = {
             "triggered_by": str(interaction.user),
@@ -34,14 +34,14 @@ class N8N(commands.Cog, name="N8N"):
                     N8N_WEBHOOK_URL, json=payload, timeout=aiohttp.ClientTimeout(total=15)
                 ) as resp:
                     if resp.status < 400:
-                        await interaction.delete_original_response()
+                        await interaction.followup.send("⚡ Triggered successfully!", ephemeral=True)
                     else:
                         body_preview = (await resp.text())[:300]
                         await interaction.followup.send(
-                            f"⚠️ {resp.status}: {body_preview}", ephemeral=True
+                            f"⚠️ HTTP {resp.status}: {body_preview}", ephemeral=True
                         )
         except aiohttp.ClientError as e:
-            await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ Connection error: {e}", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 

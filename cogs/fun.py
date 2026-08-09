@@ -71,7 +71,7 @@ class Fun(commands.Cog, name="Fun"):
         for mensaje in mensajes_target:
             try:
                 await mensaje.add_reaction(random.choice(reaction_pool))
-            except:
+            except Exception:
                 pass
 
         ataques = [

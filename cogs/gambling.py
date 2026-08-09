@@ -143,8 +143,10 @@ class Gambling(commands.Cog, name="Gambling"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.bot.loop.create_task(self._daily_winners_loop())
-        self.bot.loop.create_task(self._prediction_resolution_loop())
+
+    async def cog_load(self):
+        asyncio.create_task(self._daily_winners_loop())
+        asyncio.create_task(self._prediction_resolution_loop())
 
     async def _get_gambling_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
         settings = await db.get_settings(guild.id)
@@ -387,7 +389,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 locked_until_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=LOCKOUT_HOURS)
                 await db.update_user(interaction.guild_id, interaction.user.id, locked_until=locked_until_dt.isoformat())
                 await self._lock_channel(interaction.guild, interaction.user)
-                self.bot.loop.create_task(
+                asyncio.create_task(
                     self._unlock_channel(interaction.guild_id, interaction.user.id, LOCKOUT_HOURS)
                 )
                 result_desc += f"\n🔒 You have {new_warns} warns and got banned for {LOCKOUT_HOURS} hours."
@@ -523,7 +525,7 @@ class Gambling(commands.Cog, name="Gambling"):
         elif result == "Tie":
             result_text = "Tie, nobody wins"
         else:
-            result_text = "You loose!"
+            result_text = "You lose!"
 
         embed = discord.Embed(title="Poker", color=discord.Color.purple())
         embed.add_field(name="You", value=" ".join(user_cards), inline=False)
@@ -801,7 +803,7 @@ class Gambling(commands.Cog, name="Gambling"):
         else:
             new_balance = await db.add_money(interaction.guild_id, interaction.user.id, -amount)
             embed = discord.Embed(
-                title="😢 You loose",
+                title="😢 You lose",
                 description=(
                     f"{interaction.user.mention} bid {format_money(amount)} and lost.\n"
                     f"Current money: {format_money(new_balance)}."

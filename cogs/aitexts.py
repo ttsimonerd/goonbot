@@ -9,14 +9,17 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:0.5b")
 DEFAULT_SYSTEM_PROMPT = os.getenv("OLLAMA_SYSTEM_PROMPT")
 
 
-async def call_ollama(prompt: str, system: str = DEFAULT_SYSTEM_PROMPT) -> str:
+async def call_ollama(prompt: str, system: str | None = DEFAULT_SYSTEM_PROMPT) -> str:
     url = f"{OLLAMA_URL.rstrip('/')}/api/chat"
+    
+    messages = []
+    if system and system.strip():
+        messages.append({"role": "system", "content": system.strip()})
+    messages.append({"role": "user", "content": prompt})
+
     payload = {
         "model": OLLAMA_MODEL,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt}
-        ],
+        "messages": messages,
         "stream": False
     }
 
@@ -46,23 +49,20 @@ class AITexts(commands.Cog, name="AITexts"):
     ):
         await interaction.response.defer()
 
-        reply = await call_ollama(prompt)
-        username = interaction.user.display_name
+        try:
+            reply = await call_ollama(prompt)
+            username = interaction.user.display_name
 
-        embed = discord.Embed(color=0x992D22)
-        embed.set_author(name="Ai Ai Ai Ai")
-        embed.add_field(name=f"💬 {username}", value=f"```{prompt[:1000]}```", inline=False)
-        embed.add_field(name="🤖", value=reply[:1024] if len(reply) <= 1024 else reply[:1021] + "...", inline=False)
-        embed.set_footer(text=f"Model: {OLLAMA_MODEL} • Local Ollama")
+            embed = discord.Embed(color=0x992D22)
+            embed.set_author(name="Ai Ai Ai Ai")
+            embed.add_field(name=f"💬 {username}", value=f"```{prompt[:1000]}```", inline=False)
+            embed.add_field(name="🤖", value=reply[:1024] if len(reply) <= 1024 else reply[:1021] + "...", inline=False)
+            embed.set_footer(text=f"Model: {OLLAMA_MODEL} • Local Ollama")
 
-        await interaction.followup.send(embed=embed)
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error al procesar la solicitud: {e}")
 
 
 async def setup(bot: commands.Bot):
-    cog = AITexts(bot)
-    await bot.add_cog(cog)
-
-    print("Cog loaded:", cog.qualified_name)
-    print("Cog app commands:")
-    for cmd in cog.get_app_commands():
-        print(cmd.name, type(cmd))
+    await bot.add_cog(AITexts(bot))

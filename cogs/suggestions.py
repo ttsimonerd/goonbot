@@ -29,6 +29,13 @@ class SuggestionModal(ui.Modal, title="💡 New suggestion"):
 
     async def on_submit(self, interaction: Interaction):
         guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "❌ Suggestions can only be submitted inside a server.",
+                ephemeral=True
+            )
+            return
+
         settings = await db.get_settings(guild.id)
         ch_id = settings.get("suggestions_channel_id")
 
@@ -51,12 +58,12 @@ class SuggestionModal(ui.Modal, title="💡 New suggestion"):
         # Build the embed
         embed = discord.Embed(
             title=f"💡 {self.suggestion_title.value}",
-            description=self.suggestion_body.value or "*No aditional description*",
+            description=self.suggestion_body.value or "*No additional description*",
             color=discord.Color.gold()
         )
         embed.set_author(
             name=interaction.user.display_name,
-            icon_url=interaction.user.display_avatar.url
+            icon_url=interaction.user.display_avatar.url if interaction.user.display_avatar else None
         )
         embed.set_footer(text=f"{interaction.user}'s suggestion • ID: {interaction.user.id}")
 
@@ -66,7 +73,7 @@ class SuggestionModal(ui.Modal, title="💡 New suggestion"):
         await msg.add_reaction("❌")
 
         await interaction.response.send_message(
-            "✅ Your suggestion has been sent!.",
+            "✅ Your suggestion has been sent!",
             ephemeral=True
         )
 
@@ -83,6 +90,9 @@ class Suggestions(commands.Cog, name="Suggestions"):
 
     @app_commands.command(name="suggest", description="Send a suggestion")
     async def suggest(self, interaction: Interaction):
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
         modal = SuggestionModal(self.bot)
         await interaction.response.send_modal(modal)
 

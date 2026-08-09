@@ -5,13 +5,15 @@ from discord.ext import commands
 from discord import app_commands
 from typing import Optional
 
-AUDIO_DIR = "/audio"
+DEFAULT_AUDIO_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio")
+AUDIO_DIR = os.getenv("AUDIO_DIR", DEFAULT_AUDIO_DIR)
 
 FFMPEG_OPTIONS = {
     'executable': '/usr/bin/ffmpeg',
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
     'options': '-vn -ar 48000 -ac 2 -f s16le'
 }
+
 
 class Soundboard(commands.Cog, name="Soundboard"):
 
@@ -100,7 +102,7 @@ class Soundboard(commands.Cog, name="Soundboard"):
                 )
                 return
         else:
-            if interaction.user.voice and interaction.user.voice.channel:
+            if isinstance(interaction.user, discord.Member) and interaction.user.voice and interaction.user.voice.channel:
                 target_channel = interaction.user.voice.channel
             else:
                 await interaction.followup.send(

