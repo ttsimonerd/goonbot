@@ -51,25 +51,29 @@ class GoonBot(commands.Bot):
 
         print("==== TREE BEFORE SYNC ====")
 
-        for cmd in self.tree.walk_commands():
-            print(cmd.qualified_name)
+        local_cmds = list(self.tree.walk_commands())
+        print(f"Total commands in tree: {len(local_cmds)}")
+        for cmd in local_cmds:
+            print(f"  - {cmd.qualified_name}")
 
         print("==========================")
 
         guild = discord.Object(id=GUILD_ID)
 
         try:
+            self.tree.copy_global_to(guild=guild)
             synced = await self.tree.sync(guild=guild)
 
-            print("===== REGISTERED COMMANDS =====")
+            print(f"===== REGISTERED COMMANDS ({len(synced)}) =====")
 
             for cmd in synced:
-                print(cmd.name)
+                print(f"  - {cmd.name}")
 
             print("===============================")
 
         except Exception as e:
             print(f"❌ Sync error: {e}")
+
 
 
 bot = GoonBot(
