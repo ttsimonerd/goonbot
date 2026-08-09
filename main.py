@@ -45,35 +45,40 @@ class GoonBot(commands.Bot):
             except Exception as e:
                 print(f"❌ Failed to load extension {ext}: {e}")
 
-        # -----------------------------------------------------
-        # Slash command synchronization
-        # -----------------------------------------------------
+# -----------------------------------------------------
+# Slash command synchronization
+# -----------------------------------------------------
 
-        print("==== TREE BEFORE SYNC ====")
+print("==== TREE BEFORE SYNC ====")
 
-        for cmd in self.tree.walk_commands():
-            print(cmd.qualified_name)
+for cmd in self.tree.walk_commands():
+    print(cmd.qualified_name)
 
-        print("==========================")
+print("==========================")
 
-        guild = discord.Object(id=GUILD_ID)
+guild = discord.Object(id=GUILD_ID)
 
-        try:
-            # Copy all globally defined commands to this guild.
-            self.tree.copy_global_to(guild=guild)
+try:
+    # Remove old global commands.
+    print("🧹 Clearing global slash commands...")
 
-            synced = await self.tree.sync(guild=guild)
+    self.tree.clear_commands(guild=None)
+    await self.tree.sync()
 
-            print("===== REGISTERED COMMANDS =====")
+    print("✅ Global commands cleared")
 
-            for cmd in synced:
-                print(cmd.qualified_name)
+    # Sync commands only to this guild.
+    synced = await self.tree.sync(guild=guild)
 
-            print("===============================")
+    print("===== REGISTERED COMMANDS =====")
 
-        except Exception as e:
-            print(f"❌ Sync error: {e}")
+    for cmd in synced:
+        print(cmd.name)
 
+    print("===============================")
+
+except Exception as e:
+    print(f"❌ Sync error: {e}")
 
 bot = GoonBot(
     command_prefix="^",
