@@ -46,7 +46,7 @@ class GoonBot(commands.Bot):
     print("==========================")
     
     try:
-      synced = await self.tree.sync(guild=discord.Object(id=1440784584156385472))
+      synced = await self.tree.sync(guild=discord.Object(id=1417556208767733823))
       print("===== REGISTERED COMMANDS =====")
       for cmd in synced:
         print(cmd.name)
