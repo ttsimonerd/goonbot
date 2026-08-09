@@ -45,40 +45,32 @@ class GoonBot(commands.Bot):
             except Exception as e:
                 print(f"❌ Failed to load extension {ext}: {e}")
 
-# -----------------------------------------------------
-# Slash command synchronization
-# -----------------------------------------------------
+        # -----------------------------------------------------
+        # Slash command synchronization
+        # -----------------------------------------------------
 
-print("==== TREE BEFORE SYNC ====")
+        print("==== TREE BEFORE SYNC ====")
 
-for cmd in self.tree.walk_commands():
-    print(cmd.qualified_name)
+        for cmd in self.tree.walk_commands():
+            print(cmd.qualified_name)
 
-print("==========================")
+        print("==========================")
 
-guild = discord.Object(id=GUILD_ID)
+        guild = discord.Object(id=GUILD_ID)
 
-try:
-    # Remove old global commands.
-    print("🧹 Clearing global slash commands...")
+        try:
+            synced = await self.tree.sync(guild=guild)
 
-    self.tree.clear_commands(guild=None)
-    await self.tree.sync()
+            print("===== REGISTERED COMMANDS =====")
 
-    print("✅ Global commands cleared")
+            for cmd in synced:
+                print(cmd.name)
 
-    # Sync commands only to this guild.
-    synced = await self.tree.sync(guild=guild)
+            print("===============================")
 
-    print("===== REGISTERED COMMANDS =====")
+        except Exception as e:
+            print(f"❌ Sync error: {e}")
 
-    for cmd in synced:
-        print(cmd.name)
-
-    print("===============================")
-
-except Exception as e:
-    print(f"❌ Sync error: {e}")
 
 bot = GoonBot(
     command_prefix="^",
@@ -86,8 +78,9 @@ bot = GoonBot(
     help_command=None
 )
 
+
 IMAGE_URLS = [
-    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745012944956/IMG_20251123_223528.jpg?ex=692578c2&is=69242742&hm=4b47769727c1751c6d1044d49b7e2",
+    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745012944956/IMG_20251123_223528.jpg?ex=692578c2&is=69242742&hm=4b47769727c1751c0f1af171968e04cbe134e6c494a87811b7d6c1044d49b7e2",
     "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745344426136/IMG_20251123_223600.jpg?ex=692578c2&is=69242742&hm=2abd81e14fc934758414968a69baf6f4eca971f094adabc7a9cfc37b44da663",
     "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745986285749/IMG_20251123_223634.jpg?ex=692578c2&is=69242742&hm=115629a925ba57951db272b46001940669e6d2928b077d192ffa50d80244afb",
     "https://cdn.discordapp.com/attachments/1417592875214176447/1442267746334281851/IMG_20251123_223645.jpg?ex=692578c2&is=69242742&hm=829b1eb7f7225568105da7bd020a57aec8d43dacb225e8e5c4f0a8a6d935fec",
@@ -98,10 +91,12 @@ PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
 ALLOWED_USER_ID = 988470489909432334
 WEBHOOK_URL = os.getenv("WEBHOOK_DEP")
 NUKE_PASSWORD = os.getenv("NUKE_PASSWORD")
+REDEPLOY_PASSWORD = os.getenv("REDEPLOY_PASSWORD")
 
-# -----------------------------
+
+# -----------------------------------------------------
 # Events
-# -----------------------------
+# -----------------------------------------------------
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -116,9 +111,9 @@ async def on_ready():
     print(f"Bot conectado, {bot.user}")
 
 
-# -----------------------------
+# -----------------------------------------------------
 # Basicos
-# -----------------------------
+# -----------------------------------------------------
 
 @bot.command()
 async def hola(ctx):
@@ -163,7 +158,7 @@ async def help_command(ctx):
     embed.add_field(
         name="💬 Mensajes `^`",
         value=(
-            "`^message_add ` — Guarda un mensaje\n"
+            "`^message_add` — Guarda un mensaje\n"
             "`^message_list` — Lista los mensajes guardados"
         ),
         inline=False
@@ -180,7 +175,7 @@ async def help_command(ctx):
         value=(
             "`^roast [@usuario]` — Insulta a alguien\n"
             "`^rape [@usuario]` — Amenaza a alguien\n"
-            "`^rampage @usuario` — Rampage contra un usuario\n"
+            "`^rampage @usuario` — Rampage contra un usuario"
         ),
         inline=False
     )
@@ -189,10 +184,10 @@ async def help_command(ctx):
         name="🎲 Gambling `/`",
         value=(
             "`/roulette <red|black|even|odd|green>` — Juega a la ruleta\n"
-            "`/blackjack ` — Juega Blackjack\n"
-            "`/poker ` — Juega Poker rápido vs la banca\n"
-            "`/crash ` — Juego de rondas infinitas hasta perder o cobrar\n"
-            "`/bet ` — Apuesta dinero para ganar o perder\n"
+            "`/blackjack` — Juega Blackjack\n"
+            "`/poker` — Juega Poker rápido vs la banca\n"
+            "`/crash` — Juego de rondas infinitas hasta perder o cobrar\n"
+            "`/bet` — Apuesta dinero para ganar o perder\n"
             "`/balance [@usuario]` — Muestra saldo de gambling\n"
             "`/daily` — Reclama tu premio diario\n"
             "`/leaderboard` — Muestra el ranking de dinero\n"
@@ -207,7 +202,7 @@ async def help_command(ctx):
     embed.add_field(
         name="🔊 Soundboard `/`",
         value=(
-            "`/play ` — Reproduce un sonido en tu canal de voz\n"
+            "`/play` — Reproduce un sonido en tu canal de voz\n"
             "`/play channel:#canal` — Reproduce en un canal de voz específico 🎯\n"
             "`/play user:@usuario` — Reproduce en el canal donde está ese usuario 😈\n"
             "`/sounds` — Lista los sonidos disponibles"
@@ -234,8 +229,8 @@ async def help_command(ctx):
             "`/settings gambling_channel #canal` — Cambiar canal de gambling\n"
             "`/settings winners_channel #canal` — Cambiar canal de ganadores diarios\n"
             "`/settings suggestions_channel #canal` — Cambiar canal de sugerencias\n"
-            "`/settings lockout_hours ` — Horas de ban por gambling\n"
-            "`/settings max_warns ` — Warns antes del ban"
+            "`/settings lockout_hours` — Horas de ban por gambling\n"
+            "`/settings max_warns` — Warns antes del ban"
         ),
         inline=False
     )
@@ -253,18 +248,13 @@ async def help_command(ctx):
     await ctx.send(embed=embed)
 
 
-REDEPLOY_PASSWORD = os.getenv("REDEPLOY_PASSWORD")
+# -----------------------------------------------------
+# Redeploy
+# -----------------------------------------------------
 
-
-@bot.tree.command(
-    name="redeploy",
-    description="Redeploy webhook. Dev only!"
-)
+@bot.tree.command(name="redeploy", description="Redeploy webhook. Dev only!")
 @app_commands.describe(password="OAuth")
-async def sendwebhook(
-    interaction: discord.Interaction,
-    password: str
-):
+async def sendwebhook(interaction: discord.Interaction, password: str):
     if not REDEPLOY_PASSWORD or password != REDEPLOY_PASSWORD:
         await interaction.response.send_message(
             "Access denied.",
@@ -288,6 +278,10 @@ async def sendwebhook(
             ephemeral=True
         )
 
+
+# -----------------------------------------------------
+# Main
+# -----------------------------------------------------
 
 async def main():
     token = os.getenv("DISCORD_TOKEN")
