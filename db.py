@@ -236,6 +236,14 @@ ON music_elo_history (guild_id, song_id);
 
 CREATE INDEX IF NOT EXISTS idx_music_elo_history_created
 ON music_elo_history (guild_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS music_cooldowns (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    cooldown_type TEXT NOT NULL,
+    available_at TEXT NOT NULL,
+    PRIMARY KEY (guild_id, user_id, cooldown_type)
+);
 """
 
 

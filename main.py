@@ -282,6 +282,19 @@ async def help_command(interaction: discord.Interaction):
     )
 
     embed.add_field(
+        name="🎵 Música `/`",
+        value=(
+            "`/music add <url>` — Añade una canción a tu colección\n"
+            "`/music list [@usuario]` — Lista tu colección (o la de otro)\n"
+            "`/music history` — Historial de batallas\n"
+            "`/music info <url>` — Propietario y ELO de una canción\n"
+            "`/music battle` — Batalla musical normal\n"
+            "`/music reclaim <url>` — Batalla especial para recuperar una canción"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
         name="🔊 Soundboard `/`",
         value=(
             "`/play` — Reproduce un sonido en tu canal de voz\n"

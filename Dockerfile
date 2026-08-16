@@ -10,6 +10,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# yt-dlp's extractors (YouTube/Spotify) break frequently, so always upgrade to
+# the latest on rebuild. Placed after `COPY . .` so this layer is invalidated
+# whenever the source changes instead of being served from Docker's cache.
+RUN pip install --no-cache-dir -U yt-dlp
+
 # The SQLite DB lives here. Mount a persistent volume at this exact path in
 # Coolify (Storage tab -> Add Volume -> container path: /app/data)
 RUN mkdir -p /app/data
