@@ -16,14 +16,17 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import html as html_mod
 import logging
 import random
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 import discord
 from discord import app_commands
 from discord.ext import commands
+import requests
 import yt_dlp
 
 import db
@@ -150,9 +153,107 @@ def normalize_url(url: str) -> str:
     return url.rstrip("/")
 
 
-async def extract_song(url: str) -> tuple[str, str, str]:
-    """Resolve a music URL to (title, artist, canonical_url) via yt-dlp."""
+_SPOTIFY_OG_TITLE_RE = re.compile(
+    r'<meta[^>]+property=["\']og:title["\'][^>]*content=["\']([^"\']*)["\']'
+)
+_SPOTIFY_OG_DESC_RE = re.compile(
+    r'<meta[^>]+property=["\']og:description["\'][^>]*content=["\']([^"\']*)["\']'
+)
+_TRACK_ROW_TITLE_RE = re.compile(
+    r'href="/track/([A-Za-z0-9]+)".*?class="[^"]*line-clamp[^"]*"[^>]*>(.*?)</span>',
+    re.DOTALL,
+)
+_TRACK_ROW_ARTIST_RE = re.compile(r'href="/artist/[A-Za-z0-9]+"[^>]*>(.*?)</a>', re.DOTALL)
+
+
+def _is_spotify_url(url: str) -> bool:
+    """True for any Spotify web or short-link URL."""
+    host = (urlparse(url.strip()).netloc or "").lower().split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+    return host in ("open.spotify.com", "spotify.com", "play.spotify.com", "spotify.link")
+
+
+def _parse_spotify_tracklist(html: str) -> list[tuple[str, str, str]]:
+    """Extract (title, artist, canonical_url) for every track server-rendered
+    in a Spotify album/playlist page."""
+    tracks: list[tuple[str, str, str]] = []
+    # Everything before the first row is page boilerplate; skip it.
+    for chunk in html.split('data-testid="track-row"')[1:]:
+        m = _TRACK_ROW_TITLE_RE.search(chunk)
+        if not m:
+            continue
+        track_id, raw_title = m.group(1), m.group(2)
+        title = html_mod.unescape(re.sub(r"<[^>]+>", "", raw_title)).strip() or "Unknown title"
+        artists = [html_mod.unescape(a).strip() for a in _TRACK_ROW_ARTIST_RE.findall(chunk)]
+        artist = ", ".join(a for a in artists if a) or "Unknown artist"
+        tracks.append((title, artist, f"https://open.spotify.com/track/{track_id}"))
+    return tracks
+
+
+def _fetch_spotify(url: str) -> list[tuple[str, str, str]]:
+    """Resolve a Spotify URL to a list of (title, artist, canonical_url).
+
+    yt-dlp no longer supports Spotify (its audio is DRM-protected), but Spotify
+    still server-renders metadata: a track page exposes ``og:title`` /
+    ``og:description``, and album/playlist pages render their full track list.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Spotify devolvió el estado HTTP {resp.status_code}.")
+
+    # Follow redirects (e.g. spotify.link → open.spotify.com) and figure out the
+    # entity type from the final URL, tolerating /intl-XX/ locale prefixes.
+    parts = [p for p in urlparse(str(resp.url)).path.split("/") if p]
+    entity_type = next((p for p in parts if p in ("track", "album", "playlist")), "")
+
+    if entity_type == "track":
+        ti = parts.index("track")
+        track_id = parts[ti + 1] if ti + 1 < len(parts) else ""
+        if not track_id:
+            raise RuntimeError("No he podido leer el ID de esa canción de Spotify.")
+        title_match = _SPOTIFY_OG_TITLE_RE.search(resp.text)
+        if not title_match:
+            raise RuntimeError("No he podido leer los metadatos de esa canción de Spotify.")
+        title = html_mod.unescape(title_match.group(1)).strip()
+        artist = "Unknown artist"
+        desc_match = _SPOTIFY_OG_DESC_RE.search(resp.text)
+        if desc_match:
+            # og:description is "{artists} · {album} · {release type} · {year}".
+            # Unescape first (&#183; → ·) so the split works on either form.
+            desc = html_mod.unescape(desc_match.group(1)).strip()
+            artist = desc.split("·")[0].strip() or artist
+        return [(title, artist, f"https://open.spotify.com/track/{track_id}")]
+
+    if entity_type in ("album", "playlist"):
+        tracks = _parse_spotify_tracklist(resp.text)
+        if not tracks:
+            raise RuntimeError("No he podido leer las canciones de ese álbum/playlist de Spotify.")
+        return tracks
+
+    raise RuntimeError(
+        "Solo soporto canciones, álbumes y playlists de Spotify (no artistas ni podcasts)."
+    )
+
+
+async def extract_songs(url: str) -> list[tuple[str, str, str]]:
+    """Resolve a music URL to a list of (title, artist, canonical_url)."""
     loop = asyncio.get_running_loop()
+
+    # Spotify audio is DRM-protected and rejected by yt-dlp, so read its
+    # metadata directly from the public page instead.
+    if _is_spotify_url(url):
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(None, _fetch_spotify, url), timeout=EXTRACT_TIMEOUT
+            )
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("Se agotó el tiempo obteniendo la canción. Inténtalo de nuevo.") from exc
 
     def _extract() -> tuple[str, str, str]:
         opts = {
@@ -164,8 +265,6 @@ async def extract_song(url: str) -> tuple[str, str, str]:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
             title = info.get("track") or info.get("title") or "Unknown title"
-            # Spotify returns multiple artists as a list, unlike YouTube's
-            # single uploader/channel string.
             artist = info.get("artist") or info.get("uploader") or info.get("channel")
             if isinstance(artist, (list, tuple)):
                 artist = ", ".join(str(a) for a in artist if a)
@@ -174,7 +273,8 @@ async def extract_song(url: str) -> tuple[str, str, str]:
             return title, artist, webpage
 
     try:
-        return await asyncio.wait_for(loop.run_in_executor(None, _extract), timeout=EXTRACT_TIMEOUT)
+        single = await asyncio.wait_for(loop.run_in_executor(None, _extract), timeout=EXTRACT_TIMEOUT)
+        return [single]
     except asyncio.TimeoutError as exc:
         raise RuntimeError("Se agotó el tiempo obteniendo la canción. Inténtalo de nuevo.") from exc
 
@@ -331,21 +431,44 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             result = await self._add_song_to_user(message.guild.id, message.author.id, url)
 
             if result["status"] == "added":
-                embed = discord.Embed(
-                    title="🎵 Canción añadida",
-                    description=f"**{result['title']}**\n{result['artist']}",
-                    color=discord.Color.green(),
-                )
+                added = result["added"]
+                if len(added) == 1:
+                    song = added[0]
+                    embed = discord.Embed(
+                        title="🎵 Canción añadida",
+                        description=f"**{song['title']}**\n{song['artist']}",
+                        color=discord.Color.green(),
+                    )
+                else:
+                    embed = discord.Embed(
+                        title=f"🎵 {len(added)} canciones añadidas",
+                        color=discord.Color.green(),
+                    )
+                    lines = [f"**{s['title']}** — {s['artist']}" for s in added[:10]]
+                    embed.description = "\n".join(lines)
+                    if len(added) > 10:
+                        embed.description += f"\n*…y {len(added) - 10} más.*"
                 embed.add_field(name="Propietario", value=message.author.mention)
                 embed.set_footer(text="Añadida desde un enlace compartido")
                 await message.channel.send(embed=embed)
             elif result["status"] == "duplicate":
-                await message.channel.send(
-                    f"⚠️ {message.author.mention}, esa canción ya está adjudicada a <@{result['owner_id']}>.",
-                    delete_after=15,
-                )
+                first = result["duplicates"][0]
+                if len(result["duplicates"]) == 1:
+                    await message.channel.send(
+                        f"⚠️ {message.author.mention}, esa canción ya está adjudicada a <@{first['owner_id']}>.",
+                        delete_after=15,
+                    )
+                else:
+                    await message.channel.send(
+                        f"⚠️ {message.author.mention}, esas {len(result['duplicates'])} canciones ya están adjudicadas.",
+                        delete_after=15,
+                    )
             else:
                 logger.warning("Couldn't auto-add music link %s: %s", url, result.get("error"))
+                await message.channel.send(
+                    f"⚠️ {message.author.mention}, no he podido añadir ese enlace: `{result.get('error')}`",
+                    delete_after=30,
+                )
 
     # ------------------------------------------------------------------
     # Song lookup helpers (dict-based)
@@ -438,50 +561,57 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
     # ------------------------------------------------------------------
 
     async def _add_song_to_user(self, guild_id: int, user_id: int, url: str) -> dict[str, Any]:
-        """Adds a song to a user's collection if it isn't already claimed.
+        """Add one or more songs to a user's collection if not already claimed.
 
-        Returns a dict describing the outcome:
-          {"status": "duplicate", "owner_id": int, "title": str}
+        A Spotify album/playlist expands into all its tracks. Returns:
+          {"status": "added", "added": [song], "duplicates": [dupe]}
+          {"status": "duplicate", "added": [], "duplicates": [dupe]}
           {"status": "error", "error": str}
-          {"status": "added", "title": str, "artist": str, "url": str}
         """
-        existing = await self.song_by_url(guild_id, url)
-        if existing:
-            return {"status": "duplicate", "owner_id": existing["owner_id"], "title": existing["title"]}
-
         try:
-            title, artist, final_url = await extract_song(url)
+            tracks = await extract_songs(url)
         except Exception as exc:
             return {"status": "error", "error": str(exc)}
 
-        norm = normalize_url(final_url)
-        existing = await self.song_by_url(guild_id, norm)
-        if existing:
-            return {"status": "duplicate", "owner_id": existing["owner_id"], "title": existing["title"]}
+        added: list[dict[str, str]] = []
+        duplicates: list[dict[str, Any]] = []
 
-        platform = (
-            "spotify"
-            if "spotify" in final_url
-            else "youtube"
-            if "youtube.com" in final_url or "youtu.be" in final_url
-            else "other"
-        )
+        for title, artist, final_url in tracks:
+            existing = await self.song_by_url(guild_id, final_url)
+            if existing:
+                duplicates.append({"title": existing["title"], "owner_id": existing["owner_id"]})
+                continue
 
-        async with db._write_lock:
-            cur = await db._conn().execute(
-                "INSERT INTO music_songs(guild_id,title,artist,url,normalized_url,platform,owner_id,is_original,elo,peak_elo,created_at) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                (str(guild_id), title, artist, final_url, norm, platform,
-                 str(user_id), 0, INITIAL_ELO, INITIAL_ELO, now_iso()),
+            platform = (
+                "spotify"
+                if "spotify" in final_url
+                else "youtube"
+                if "youtube.com" in final_url or "youtu.be" in final_url
+                else "other"
             )
-            song_id = cur.lastrowid
-            await db._conn().execute(
-                "INSERT INTO music_ownership(guild_id,song_id,owner_id,acquired_at) VALUES(?,?,?,?)",
-                (str(guild_id), song_id, str(user_id), now_iso()),
-            )
-            await db._conn().commit()
+            norm = normalize_url(final_url)
 
-        return {"status": "added", "title": title, "artist": artist, "url": final_url}
+            async with db._write_lock:
+                cur = await db._conn().execute(
+                    "INSERT INTO music_songs(guild_id,title,artist,url,normalized_url,platform,owner_id,is_original,elo,peak_elo,created_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    (str(guild_id), title, artist, final_url, norm, platform,
+                     str(user_id), 0, INITIAL_ELO, INITIAL_ELO, now_iso()),
+                )
+                song_id = cur.lastrowid
+                await db._conn().execute(
+                    "INSERT INTO music_ownership(guild_id,song_id,owner_id,acquired_at) VALUES(?,?,?,?)",
+                    (str(guild_id), song_id, str(user_id), now_iso()),
+                )
+                await db._conn().commit()
+
+            added.append({"title": title, "artist": artist, "url": final_url})
+
+        if added:
+            return {"status": "added", "added": added, "duplicates": duplicates}
+        if duplicates:
+            return {"status": "duplicate", "added": [], "duplicates": duplicates}
+        return {"status": "error", "error": "No se pudieron extraer canciones de ese enlace."}
 
     async def record_vote(self, guild_id: int, battle_id: int, user_id: int, song_id: int) -> None:
         """Persist a vote, allowing a user to change their vote."""
@@ -575,35 +705,60 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
     # Commands
     # ------------------------------------------------------------------
 
-    @app_commands.command(name="add", description="Añade una canción y te la adjudica.")
-    @app_commands.describe(url="URL de YouTube u otra plataforma compatible")
+    @app_commands.command(name="add", description="Añade una canción (o un álbum/playlist de Spotify) y te la adjudica.")
+    @app_commands.describe(url="URL de YouTube, Spotify u otra plataforma compatible")
     async def add(self, interaction: discord.Interaction, url: str) -> None:
-        """Añade una canción y te la adjudica."""
+        """Añade una canción (o un álbum/playlist) y te la adjudica."""
         await interaction.response.defer(ephemeral=True)
         if interaction.guild_id is None:
             await interaction.followup.send("Este comando solo funciona dentro de un servidor.", ephemeral=True)
             return
         result = await self._add_song_to_user(interaction.guild_id, interaction.user.id, url)
 
+        if result["status"] == "error":
+            await interaction.followup.send(f"No he podido obtener la canción: `{result['error']}`", ephemeral=True)
+            return
+
         if result["status"] == "duplicate":
+            first = result["duplicates"][0]
             await interaction.followup.send(
-                f"**Duplicada.** Esta canción ya está adjudicada a <@{result['owner_id']}>.\n"
+                f"**Duplicada.** Esta canción ya está adjudicada a <@{first['owner_id']}>.\n"
                 "Puedes usar `/music reclaim` para intentar recuperarla mediante una batalla especial.",
                 ephemeral=True,
             )
             return
 
-        if result["status"] == "error":
-            await interaction.followup.send(f"No he podido obtener la canción: `{result['error']}`", ephemeral=True)
+        added = result["added"]
+        duplicates = result["duplicates"]
+
+        if len(added) == 1 and not duplicates:
+            song = added[0]
+            embed = discord.Embed(
+                title="Canción adjudicada",
+                description=f"**{song['title']}**\n{song['artist']}",
+            )
+            embed.add_field(name="Propietario", value=interaction.user.mention)
+            embed.add_field(name="ELO", value=str(INITIAL_ELO))
+            embed.add_field(name="Información", value="Esta canción queda asociada a ti hasta que pierdas una batalla especial.")
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
+        n = len(added)
         embed = discord.Embed(
-            title="Canción adjudicada",
-            description=f"**{result['title']}**\n{result['artist']}",
+            title=f"🎵 {n} {'canción añadida' if n == 1 else 'canciones añadidas'}",
+            color=discord.Color.green(),
         )
+        lines = [f"**{s['title']}** — {s['artist']}" for s in added[:15]]
+        embed.description = "\n".join(lines)
+        if n > 15:
+            embed.description += f"\n*…y {n - 15} más.*"
         embed.add_field(name="Propietario", value=interaction.user.mention)
-        embed.add_field(name="ELO", value=str(INITIAL_ELO))
-        embed.add_field(name="Información", value="Esta canción queda asociada a ti hasta que pierdas una batalla especial.")
+        if duplicates:
+            embed.add_field(
+                name="Ya estaban adjudicadas",
+                value=f"{len(duplicates)} canción(es) se saltaron por estar ya reclamadas.",
+            )
+        embed.set_footer(text=f"ELO inicial {INITIAL_ELO} para cada canción")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="list", description="Muestra tu colección de canciones (o la de otro miembro).")
