@@ -300,6 +300,22 @@ async def _migrate() -> None:
             "ADD COLUMN allowed_users TEXT NOT NULL DEFAULT '[]'"
         )
 
+    # Backfill music_songs.platform for rows added before per-platform tagging
+    # existed (they defaulted to 'other'). Infer from the stored URL; rows we
+    # can't classify stay 'other', so this stays a cheap no-op after one run.
+    cursor = await _connection.execute(
+        "SELECT id, normalized_url FROM music_songs "
+        "WHERE platform = 'other' OR platform = ''"
+    )
+    backfill_rows = await cursor.fetchall()
+    for song_id, song_url in backfill_rows:
+        inferred = infer_platform(song_url)
+        if inferred != "other":
+            await _connection.execute(
+                "UPDATE music_songs SET platform = ? WHERE id = ?",
+                (inferred, song_id),
+            )
+
 
 async def close_db() -> None:
     """Call on bot shutdown so aiosqlite's background thread exits cleanly."""
@@ -317,6 +333,28 @@ def _conn() -> aiosqlite.Connection:
         )
 
     return _connection
+
+
+def infer_platform(url: str) -> str:
+    """Classify a song's source platform from its URL.
+
+    Shared by the runtime insert path and the startup backfill migration, so
+    both stay in sync on the set of recognised platforms.
+    """
+    u = (url or "").lower()
+    if "spotify" in u:
+        return "spotify"
+    if "youtube.com" in u or "youtu.be" in u:
+        return "youtube"
+    if "soundcloud.com" in u:
+        return "soundcloud"
+    if "music.apple.com" in u or "itunes.apple.com" in u:
+        return "apple_music"
+    if "deezer.com" in u:
+        return "deezer"
+    if "bandcamp.com" in u:
+        return "bandcamp"
+    return "other"
 
 
 # ---------------------------------------------------------------------------

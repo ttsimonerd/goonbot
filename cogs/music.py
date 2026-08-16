@@ -84,6 +84,22 @@ def _song_dict(row: Any) -> dict[str, Any]:
     }
 
 
+PLATFORM_LABELS = {
+    "spotify": "Spotify",
+    "youtube": "YouTube",
+    "soundcloud": "SoundCloud",
+    "apple_music": "Apple Music",
+    "deezer": "Deezer",
+    "bandcamp": "Bandcamp",
+    "other": "Otra plataforma",
+}
+
+
+def _platform_label(platform: str) -> str:
+    """Human-readable source label for a song's stored ``platform`` tag."""
+    return PLATFORM_LABELS.get((platform or "").lower(), (platform or "Desconocida").title())
+
+
 def _find_music_urls(text: str) -> list[str]:
     """Extract unique music-platform URLs from a message's raw text."""
     urls: list[str] = []
@@ -471,12 +487,16 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
                         description=f"**{song['title']}**\n{song['artist']}",
                         color=discord.Color.green(),
                     )
+                    embed.add_field(name="Plataforma", value=_platform_label(song["platform"]))
                 else:
                     embed = discord.Embed(
                         title=f"🎵 {len(added)} canciones añadidas",
                         color=discord.Color.green(),
                     )
-                    lines = [f"**{s['title']}** — {s['artist']}" for s in added[:10]]
+                    lines = [
+                        f"**{s['title']}** — {s['artist']} · {_platform_label(s['platform'])}"
+                        for s in added[:10]
+                    ]
                     embed.description = "\n".join(lines)
                     if len(added) > 10:
                         embed.description += f"\n*…y {len(added) - 10} más.*"
@@ -614,13 +634,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
                 duplicates.append({"title": existing["title"], "owner_id": existing["owner_id"]})
                 continue
 
-            platform = (
-                "spotify"
-                if "spotify" in final_url
-                else "youtube"
-                if "youtube.com" in final_url or "youtu.be" in final_url
-                else "other"
-            )
+            platform = db.infer_platform(final_url)
             norm = normalize_url(final_url)
 
             async with db._write_lock:
@@ -637,7 +651,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
                 )
                 await db._conn().commit()
 
-            added.append({"title": title, "artist": artist, "url": final_url})
+            added.append({"title": title, "artist": artist, "url": final_url, "platform": platform})
 
         if added:
             return {"status": "added", "added": added, "duplicates": duplicates}
@@ -770,6 +784,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
                 description=f"**{song['title']}**\n{song['artist']}",
             )
             embed.add_field(name="Propietario", value=interaction.user.mention)
+            embed.add_field(name="Plataforma", value=_platform_label(song["platform"]))
             embed.add_field(name="ELO", value=str(INITIAL_ELO))
             embed.add_field(name="Información", value="Esta canción queda asociada a ti hasta que pierdas una batalla especial.")
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -780,7 +795,10 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             title=f"🎵 {n} {'canción añadida' if n == 1 else 'canciones añadidas'}",
             color=discord.Color.green(),
         )
-        lines = [f"**{s['title']}** — {s['artist']}" for s in added[:15]]
+        lines = [
+            f"**{s['title']}** — {s['artist']} · {_platform_label(s['platform'])}"
+            for s in added[:15]
+        ]
         embed.description = "\n".join(lines)
         if n > 15:
             embed.description += f"\n*…y {n - 15} más.*"
@@ -797,9 +815,9 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
     @app_commands.describe(member="Miembro cuya colección quieres ver (opcional)")
     async def list_songs(self, interaction: discord.Interaction, member: discord.Member | None = None) -> None:
         """Muestra la colección de canciones de un miembro, ordenada por ELO."""
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         if interaction.guild_id is None:
-            await interaction.followup.send("Solo disponible en servidores.", ephemeral=True)
+            await interaction.followup.send("Solo disponible en servidores.")
             return
 
         target = member or interaction.user
@@ -807,7 +825,6 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         if not songs:
             await interaction.followup.send(
                 f"**{target.display_name}** no tiene canciones adjudicadas todavía.",
-                ephemeral=True,
             )
             return
 
@@ -815,10 +832,13 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             title=f"🎵 Colección de {target.display_name}",
             color=discord.Color.blurple(),
         )
-        lines = [f"`#{s['id']}` **{s['title']}** — {s['artist']} · ELO `{s['elo']}`" for s in songs]
+        lines = [
+            f"`#{s['id']}` **{s['title']}** — {s['artist']} · {_platform_label(s['platform'])} · ELO `{s['elo']}`"
+            for s in songs
+        ]
         embed.description = "\n".join(lines[:25])
         embed.set_footer(text=f"{len(songs)} canciones" + (" · mostrando las 25 mejores" if len(songs) > 25 else ""))
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="history", description="Muestra el historial de batallas musicales.")
     async def history(self, interaction: discord.Interaction) -> None:
