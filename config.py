@@ -22,9 +22,6 @@ REDEPLOY_PASSWORD = os.getenv("REDEPLOY_PASSWORD")
 # Password for the destructive /los_horrores command (cogs/admin.py).
 NUKE_PASSWORD = os.getenv("NUKE_PASSWORD")
 
-# Password for the secret /admindashboard command (cogs/secret_command.py).
-SECRET_CMD_PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
-
 # Image URLs used by the bot (currently unused — kept here so they don't
 # clutter main.py).
 IMAGE_URLS = [

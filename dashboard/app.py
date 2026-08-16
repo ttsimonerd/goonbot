@@ -9,8 +9,8 @@ needs the running bot instance injected, which only exists once main.py
 constructs it.
 """
 
+import logging
 import os
-import traceback
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -23,6 +23,8 @@ from slowapi import _rate_limit_exceeded_handler
 
 from dashboard.limiter import limiter
 from dashboard.routes import router as dashboard_router
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -50,10 +52,12 @@ def create_app(bot) -> FastAPI:
         HTTPException, request validation and rate-limit errors keep their
         own handlers; this only fires for genuinely unexpected failures.
         """
-        print(
-            f"[DashboardError] Unhandled exception in {request.method} {request.url.path}"
+        logger.error(
+            "Unhandled exception in %s %s",
+            request.method,
+            request.url.path,
+            exc_info=(type(exc), exc, exc.__traceback__),
         )
-        traceback.print_exception(type(exc), exc, exc.__traceback__)
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
     static_dir = BASE_DIR / "static"

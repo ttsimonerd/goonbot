@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS economy (
     warns INTEGER NOT NULL DEFAULT 0,
     locked_until TEXT,
     daily_claimed TEXT,
+    daily_streak INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (guild_id, user_id)
 );
 
@@ -59,7 +60,8 @@ CREATE TABLE IF NOT EXISTS settings (
     gambling_lockout_hours INTEGER NOT NULL DEFAULT 24,
     gambling_max_warns INTEGER NOT NULL DEFAULT 3,
     gambling_winners_channel_id TEXT,
-    suggestions_channel_id TEXT
+    suggestions_channel_id TEXT,
+    music_channel_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS dashboard_users (
@@ -87,6 +89,13 @@ CREATE TABLE IF NOT EXISTS allowed_channels (
 CREATE TABLE IF NOT EXISTS dashboard_config (
     key TEXT PRIMARY KEY,
     value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS saved_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    author_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 
 -- -------------------------------------------------------------------------
@@ -241,7 +250,29 @@ async def init_db() -> None:
     await _connection.execute("PRAGMA foreign_keys=ON;")
 
     await _connection.executescript(SCHEMA)
+    await _migrate()
     await _connection.commit()
+
+
+async def _migrate() -> None:
+    """Apply lightweight migrations for columns added after the initial schema."""
+    cursor = await _connection.execute("PRAGMA table_info(settings)")
+    rows = await cursor.fetchall()
+    columns = {row[1] for row in rows}
+
+    if "music_channel_id" not in columns:
+        await _connection.execute(
+            "ALTER TABLE settings ADD COLUMN music_channel_id TEXT"
+        )
+
+    cursor = await _connection.execute("PRAGMA table_info(economy)")
+    rows = await cursor.fetchall()
+    columns = {row[1] for row in rows}
+
+    if "daily_streak" not in columns:
+        await _connection.execute(
+            "ALTER TABLE economy ADD COLUMN daily_streak INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 async def close_db() -> None:
@@ -271,6 +302,7 @@ DEFAULT_USER = {
     "warns": 0,
     "locked_until": None,
     "daily_claimed": None,
+    "daily_streak": 0,
 }
 
 
@@ -278,7 +310,7 @@ async def get_user(guild_id: int, user_id: int) -> dict[str, Any]:
     db = _conn()
 
     cursor = await db.execute(
-        "SELECT money, warns, locked_until, daily_claimed "
+        "SELECT money, warns, locked_until, daily_claimed, daily_streak "
         "FROM economy WHERE guild_id = ? AND user_id = ?",
         (str(guild_id), str(user_id)),
     )
@@ -302,6 +334,7 @@ async def get_user(guild_id: int, user_id: int) -> dict[str, Any]:
         "warns": row[1],
         "locked_until": row[2],
         "daily_claimed": row[3],
+        "daily_streak": row[4],
     }
 
 
@@ -390,6 +423,21 @@ async def get_top_balances(
     return [(row[0], row[1]) for row in rows]
 
 
+async def get_locked_users(guild_id: int) -> list[tuple[str, str]]:
+    """Return (user_id, locked_until) for every user currently locked out."""
+    db = _conn()
+
+    cursor = await db.execute(
+        "SELECT user_id, locked_until FROM economy "
+        "WHERE guild_id = ? AND locked_until IS NOT NULL",
+        (str(guild_id),),
+    )
+
+    rows = await cursor.fetchall()
+
+    return [(row[0], row[1]) for row in rows]
+
+
 # ---------------------------------------------------------------------------
 # Settings
 # ---------------------------------------------------------------------------
@@ -400,6 +448,7 @@ DEFAULT_SETTINGS = {
     "gambling_max_warns": 3,
     "gambling_winners_channel_id": None,
     "suggestions_channel_id": None,
+    "music_channel_id": None,
 }
 
 
@@ -409,7 +458,7 @@ async def get_settings(guild_id: int) -> dict[str, Any]:
     cursor = await db.execute(
         "SELECT gambling_channel_id, gambling_lockout_hours, "
         "gambling_max_warns, gambling_winners_channel_id, "
-        "suggestions_channel_id "
+        "suggestions_channel_id, music_channel_id "
         "FROM settings WHERE guild_id = ?",
         (str(guild_id),),
     )
@@ -432,6 +481,7 @@ async def get_settings(guild_id: int) -> dict[str, Any]:
         "gambling_max_warns": row[2],
         "gambling_winners_channel_id": int(row[3]) if row[3] else None,
         "suggestions_channel_id": int(row[4]) if row[4] else None,
+        "music_channel_id": int(row[5]) if row[5] else None,
     }
 
 
@@ -787,6 +837,76 @@ async def remove_allowed_channel(channel_key: str) -> None:
         await db.execute(
             "DELETE FROM allowed_channels WHERE channel_key = ?",
             (channel_key,),
+        )
+        await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Saved messages (mensajes cog)
+# ---------------------------------------------------------------------------
+
+async def add_saved_message(author_id: int, content: str) -> int:
+    """Inserts a saved message and returns its new id."""
+    db = _conn()
+
+    async with _write_lock:
+        cur = await db.execute(
+            "INSERT INTO saved_messages (author_id, content, created_at) "
+            "VALUES (?, ?, ?)",
+            (str(author_id), content, datetime.datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_saved_messages() -> list[dict[str, Any]]:
+    """Returns all saved messages in insertion order."""
+    db = _conn()
+
+    cursor = await db.execute(
+        "SELECT id, author_id, content FROM saved_messages ORDER BY id"
+    )
+    rows = await cursor.fetchall()
+
+    return [
+        {"id": row[0], "author_id": int(row[1]), "content": row[2]}
+        for row in rows
+    ]
+
+
+async def get_saved_message(message_id: int) -> dict[str, Any] | None:
+    db = _conn()
+
+    cursor = await db.execute(
+        "SELECT id, author_id, content FROM saved_messages WHERE id = ?",
+        (message_id,),
+    )
+    row = await cursor.fetchone()
+
+    if row is None:
+        return None
+
+    return {"id": row[0], "author_id": int(row[1]), "content": row[2]}
+
+
+async def update_saved_message(message_id: int, content: str) -> None:
+    db = _conn()
+
+    async with _write_lock:
+        await db.execute(
+            "UPDATE saved_messages SET content = ? WHERE id = ?",
+            (content, message_id),
+        )
+        await db.commit()
+
+
+async def delete_saved_message(message_id: int) -> None:
+    db = _conn()
+
+    async with _write_lock:
+        await db.execute(
+            "DELETE FROM saved_messages WHERE id = ?",
+            (message_id,),
         )
         await db.commit()
 

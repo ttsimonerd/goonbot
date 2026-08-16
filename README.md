@@ -9,7 +9,6 @@
 
 ## What can this bot do? 👣
 
-- [X] **Local AI Integration**: Talk to **AI** powered by local Ollama (`qwen2.5:0.5b`, dumbah...).
 - [X] **Gambling & Economy**: Shared economy system (`/balance`, `/daily`, `/roulette`, `/blackjack`, `/poker`, `/crash`, `/bet`, `/leaderboard`, `/votebet`).
 - [X] **Voice Soundboard**: Play custom sounds in voice channels (`/play`, `/sounds`).
 - [X] **Web Dashboard**: Web control panel with Discord OAuth2 to manage bot messages and settings.
@@ -19,21 +18,20 @@
 
 ## 🔐 Discord Developer Portal — required intents
 
-The bot uses slash commands (`/`) only, so it does **not** need the Message
-Content intent. The only privileged intent you must enable is **Server Members**.
-
 ### Required
 
 | Intent | Privileged | Why it's needed |
 | --- | --- | --- |
 | **Server Members Intent** | ✅ Yes | The web dashboard checks guild membership and resolves member names. |
+| **Message Content Intent** | ✅ Yes | The music system scans chat for shared music links to auto-add songs. |
 
+> Note: Message Content is a privileged intent — you may need to request access
+> for it in the Developer Portal before it can be enabled.
 
 ### Intentionally disabled
 
 | Intent | Why it's not needed |
 | --- | --- |
-| Message Content Intent | All commands are slash commands, which don't read message text. |
 | Presence Intent | The bot doesn't read user status/activity. |
 
 ---

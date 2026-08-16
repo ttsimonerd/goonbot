@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import logging
 import random
+import re
 import time
 from typing import Optional
 
@@ -27,12 +29,46 @@ import yt_dlp
 
 import db
 
+logger = logging.getLogger(__name__)
 
 NORMAL_COOLDOWN = 60
 RECLAIM_COOLDOWN = 60 * 60 * 24 * 3
 INITIAL_ELO = 1000
 WIN_GAIN_FRACTION = 0.50
 LOSS_FRACTION = 0.25
+
+_URL_RE = re.compile(r"https?://\S+")
+
+# Platforms we treat as "music links" when scanning chat. yt-dlp resolves the
+# final metadata; this list just stops us from treating every URL as music.
+MUSIC_DOMAINS = (
+    "youtube.com",
+    "youtu.be",
+    "music.youtube.com",
+    "spotify.com",
+    "open.spotify.com",
+    "soundcloud.com",
+    "music.apple.com",
+    "deezer.com",
+    "bandcamp.com",
+)
+
+
+def _find_music_urls(text: str) -> list[str]:
+    """Extract unique music-platform URLs from a message's raw text."""
+    urls: list[str] = []
+    seen: set[str] = set()
+    for match in _URL_RE.findall(text):
+        url = match.rstrip(")>].,!?;")
+        if url in seen:
+            continue
+        host = url.split("//")[-1].split("/")[0].lower().split(":")[0]
+        if host.startswith("www."):
+            host = host[4:]
+        if any(host == d or host.endswith("." + d) for d in MUSIC_DOMAINS):
+            seen.add(url)
+            urls.append(url)
+    return urls
 
 
 def now_iso() -> str:
@@ -161,6 +197,40 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         """Prepara el esquema de la base de datos al cargar."""
         await self.ensure_schema()
 
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        """Auto-adds music links shared in the configured music channel."""
+        if message.author.bot or message.guild is None:
+            return
+        # Cheap early exit: only hit the DB when the message actually has a URL.
+        if not _URL_RE.search(message.content):
+            return
+
+        settings = await db.get_settings(message.guild.id)
+        music_channel_id = settings.get("music_channel_id")
+        if music_channel_id is None or message.channel.id != music_channel_id:
+            return
+
+        for url in _find_music_urls(message.content):
+            result = await self._add_song_to_user(message.guild.id, message.author.id, url)
+
+            if result["status"] == "added":
+                embed = discord.Embed(
+                    title="🎵 Canción añadida",
+                    description=f"**{result['title']}**\n{result['artist']}",
+                    color=discord.Color.green(),
+                )
+                embed.add_field(name="Propietario", value=message.author.mention)
+                embed.set_footer(text="Añadida desde un enlace compartido")
+                await message.channel.send(embed=embed)
+            elif result["status"] == "duplicate":
+                await message.channel.send(
+                    f"⚠️ {message.author.mention}, esa canción ya está adjudicada a <@{result['owner_id']}>.",
+                    delete_after=15,
+                )
+            else:
+                logger.warning("Couldn't auto-add music link %s: %s", url, result.get("error"))
+
     async def ensure_schema(self) -> None:
         """Crea las tablas de música si no existen."""
         if self._schema_ready:
@@ -277,6 +347,46 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             )
             await db._conn().commit()
 
+    async def _add_song_to_user(self, guild_id: int, user_id: int, url: str) -> dict:
+        """Adds a song to a user's collection if it isn't already claimed.
+
+        Returns a dict describing the outcome:
+          {"status": "duplicate", "owner_id": int, "title": str}
+          {"status": "error", "error": str}
+          {"status": "added", "title": str, "artist": str, "url": str}
+        """
+        existing = await self.song_by_url(guild_id, url)
+        if existing:
+            return {"status": "duplicate", "owner_id": existing[4], "title": existing[1]}
+
+        try:
+            title, artist, final_url = await extract_song(url)
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)}
+
+        norm = normalize_url(final_url)
+        existing = await self.song_by_url(guild_id, norm)
+        if existing:
+            return {"status": "duplicate", "owner_id": existing[4], "title": existing[1]}
+
+        platform = "youtube" if "youtube.com" in final_url or "youtu.be" in final_url else "other"
+
+        async with db._write_lock:
+            cur = await db._conn().execute(
+                "INSERT INTO music_songs(guild_id,title,artist,url,normalized_url,platform,owner_id,is_original,elo,peak_elo,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (str(guild_id), title, artist, final_url, norm, platform,
+                 str(user_id), 0, INITIAL_ELO, INITIAL_ELO, now_iso()),
+            )
+            song_id = cur.lastrowid
+            await db._conn().execute(
+                "INSERT INTO music_ownership(guild_id,song_id,owner_id,acquired_at) VALUES(?,?,?,?)",
+                (str(guild_id), song_id, str(user_id), now_iso()),
+            )
+            await db._conn().commit()
+
+        return {"status": "added", "title": title, "artist": artist, "url": final_url}
+
     @app_commands.command(name="add", description="Añade una canción y te la adjudica.")
     @app_commands.describe(url="URL de YouTube u otra plataforma compatible")
     async def add(self, interaction: discord.Interaction, url: str) -> None:
@@ -285,48 +395,23 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         if interaction.guild_id is None:
             await interaction.followup.send("Este comando solo funciona dentro de un servidor.", ephemeral=True)
             return
-        existing = await self.song_by_url(interaction.guild_id, url)
-        if existing:
+        result = await self._add_song_to_user(interaction.guild_id, interaction.user.id, url)
+
+        if result["status"] == "duplicate":
             await interaction.followup.send(
-                f"**Duplicada.** Esta canción ya está adjudicada a <@{existing[4]}>.\n"
+                f"**Duplicada.** Esta canción ya está adjudicada a <@{result['owner_id']}>.\n"
                 "Puedes usar `/music reclaim` para intentar recuperarla mediante una batalla especial.",
                 ephemeral=True,
             )
             return
 
-        try:
-            title, artist, final_url = await extract_song(url)
-        except Exception as exc:
-            await interaction.followup.send(f"No he podido obtener la canción: `{exc}`", ephemeral=True)
+        if result["status"] == "error":
+            await interaction.followup.send(f"No he podido obtener la canción: `{result['error']}`", ephemeral=True)
             return
-
-        norm = normalize_url(final_url)
-        if await self.song_by_url(interaction.guild_id, norm):
-            existing = await self.song_by_url(interaction.guild_id, norm)
-            await interaction.followup.send(
-                f"**Duplicada.** Ya pertenece a <@{existing[4]}>.",
-                ephemeral=True,
-            )
-            return
-
-        platform = "youtube" if "youtube.com" in final_url or "youtu.be" in final_url else "other"
-        async with db._write_lock:
-            cur = await db._conn().execute(
-                "INSERT INTO music_songs(guild_id,title,artist,url,normalized_url,platform,owner_id,is_original,elo,peak_elo,created_at) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                (str(interaction.guild_id), title, artist, final_url, norm, platform,
-                 str(interaction.user.id), 0, INITIAL_ELO, INITIAL_ELO, now_iso()),
-            )
-            song_id = cur.lastrowid
-            await db._conn().execute(
-                "INSERT INTO music_ownership(guild_id,song_id,owner_id,acquired_at) VALUES(?,?,?,?)",
-                (str(interaction.guild_id), song_id, str(interaction.user.id), now_iso()),
-            )
-            await db._conn().commit()
 
         embed = discord.Embed(
             title="Canción adjudicada",
-            description=f"**{title}**\n{artist}",
+            description=f"**{result['title']}**\n{result['artist']}",
         )
         embed.add_field(name="Propietario", value=interaction.user.mention)
         embed.add_field(name="ELO", value=str(INITIAL_ELO))
@@ -433,7 +518,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             await db._conn().commit()
         await self.set_cooldown(interaction.guild_id, interaction.user.id, "normal", NORMAL_COOLDOWN)
 
-        embed = self.battle_embed("⚔️ Batalla musical", a, b, special=False)
+        embed = self.battle_embed("⚔️ Batalla musical", a, b)
         view = MusicBattleView(self, battle_id, a[0], b[0])
         view.add_item(discord.ui.Button(label=a[1][:80], style=discord.ButtonStyle.primary, custom_id=f"music:a:{battle_id}"))
         view.add_item(discord.ui.Button(label=b[1][:80], style=discord.ButtonStyle.secondary, custom_id=f"music:b:{battle_id}"))
@@ -485,7 +570,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         # but owner_song()/song_by_url() return extra columns, so trim them here.
         challenger_view = (challenger[0], challenger[1], challenger[2], challenger[4], challenger[5])
         target_view = (target[0], target[1], target[2], target[4], target[5])
-        embed = self.battle_embed("👑 Batalla especial — recuperar canción", challenger_view, target_view, special=True)
+        embed = self.battle_embed("👑 Batalla especial — recuperar canción", challenger_view, target_view)
         embed.add_field(
             name="Regla especial",
             value="Si gana el retador, la canción objetivo cambia de propietario. Esta batalla tiene un cooldown largo.",
@@ -498,10 +583,19 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         view.children[1].callback = lambda i: view.vote(i, target[0])
         view.message = await interaction.followup.send(embed=embed, view=view, wait=True)
 
-    def battle_embed(self, title: str, a: tuple, b: tuple, special: bool = False) -> discord.Embed:
+    def battle_embed(self, title: str, a: tuple, b: tuple) -> discord.Embed:
+        """Build the battle embed from (id, title, artist, owner_id, elo) rows."""
         embed = discord.Embed(title=title)
-        embed.add_field(name="A", value=f"**{a[1]}**\n{a[2]}\nELO: `{a[4] if len(a) > 4 else a[5]}`\nPropietario: <@{a[3] if len(a) > 3 else a[4]}>", inline=True)
-        embed.add_field(name="B", value=f"**{b[1]}**\n{b[2]}\nELO: `{b[4] if len(b) > 4 else b[5]}`\nPropietario: <@{b[3] if len(b) > 3 else b[4]}>", inline=True)
+        embed.add_field(
+            name="A",
+            value=f"**{a[1]}**\n{a[2]}\nELO: `{a[4]}`\nPropietario: <@{a[3]}>",
+            inline=True,
+        )
+        embed.add_field(
+            name="B",
+            value=f"**{b[1]}**\n{b[2]}\nELO: `{b[4]}`\nPropietario: <@{b[3]}>",
+            inline=True,
+        )
         embed.set_footer(text="Vota con los botones de abajo.")
         return embed
 

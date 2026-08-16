@@ -22,17 +22,8 @@ EXPOSE 3000
 # --- Required secrets (set these in Coolify's Environment Variables tab) ---
 ENV DISCORD_TOKEN=""
 ENV SESSION_SECRET=""
-ENV SECRET_CMD_PASSWORD=""
 ENV REDEPLOY_PASSWORD=""
 ENV WEBHOOK_DEP=""
 ENV NUKE_PASSWORD=""
-
-# --- Optional: n8n integration ---
-ENV N8N_WEBHOOK_URL=""
-
-# --- Ollama Local AI (defaults work if Ollama is on the same host) ---
-ENV OLLAMA_URL=http://localhost:11434
-ENV OLLAMA_MODEL=qwen2.5:0.5b
-ENV OLLAMA_SYSTEM_PROMPT=""
 
 CMD ["python3", "main.py"]

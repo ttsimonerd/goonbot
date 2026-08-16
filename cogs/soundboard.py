@@ -1,5 +1,6 @@
 import os
 import asyncio
+import logging
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -14,6 +15,8 @@ FFMPEG_OPTIONS = {
     'options': '-vn -ar 48000 -ac 2 -f s16le'
 }
 
+logger = logging.getLogger(__name__)
+
 
 class Soundboard(commands.Cog, name="Soundboard"):
     """Reproduce sonidos locales en canales de voz (/play, /sounds)."""
@@ -22,21 +25,22 @@ class Soundboard(commands.Cog, name="Soundboard"):
         self.bot = bot
 
     def get_sounds(self) -> list[str]:
-        """Devuelve los nombres de los sonidos disponibles."""
+        """Devuelve los nombres de los sonidos disponibles, ordenados."""
         if not os.path.isdir(AUDIO_DIR):
             return []
-        return [
+        return sorted(
             os.path.splitext(f)[0]
             for f in os.listdir(AUDIO_DIR)
             if f.endswith((".mp3", ".wav", ".ogg", ".pcm"))
-        ]
+        )
 
     async def _play_in_channel(
         self,
         interaction: discord.Interaction,
         sound_path: str,
         sound_name: str,
-        target_channel: discord.VoiceChannel
+        target_channel: discord.VoiceChannel,
+        volume: float = 1.0,
     ) -> None:
         """Conecta al canal y reproduce el sonido indicado."""
         for existing_vc in self.bot.voice_clients:
@@ -49,7 +53,7 @@ class Soundboard(commands.Cog, name="Soundboard"):
             await interaction.followup.send(f"❌ Couldn't connect: {e}", ephemeral=True)
             return
 
-        print(f"[Soundboard] Playing {sound_path} in {target_channel.name}")
+        logger.info("Playing %s in %s", sound_path, target_channel.name)
 
         try:
             source = discord.FFmpegPCMAudio(
@@ -58,13 +62,13 @@ class Soundboard(commands.Cog, name="Soundboard"):
                 before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
                 options='-vn -ar 48000 -ac 2 -f s16le pipe:1'
             )
-            transformed = discord.PCMVolumeTransformer(source, volume=1.0)
+            transformed = discord.PCMVolumeTransformer(source, volume=volume)
             vc.play(
                 transformed,
-                after=lambda e: self.bot.loop.create_task(self._disconnect(vc, e))
+                after=lambda e: self.bot.create_background_task(self._disconnect(vc, e))
             )
         except Exception as e:
-            print(f"[Soundboard] vc.play exception: {e}")
+            logger.error("vc.play exception: %s", e)
             await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
             await vc.disconnect()
             return
@@ -80,7 +84,8 @@ class Soundboard(commands.Cog, name="Soundboard"):
     @app_commands.describe(
         sound="...",
         channel="(opcional)",
-        user="(opcional)"
+        user="(opcional)",
+        volume="Volumen (1-200, default 100)"
     )
     async def play(
         self,
@@ -88,6 +93,7 @@ class Soundboard(commands.Cog, name="Soundboard"):
         sound: str,
         channel: Optional[discord.VoiceChannel] = None,
         user: Optional[discord.Member] = None,
+        volume: int = 100,
     ) -> None:
         """Reproduce un sonido en un canal de voz (o en el del usuario indicado)."""
         await interaction.response.defer()
@@ -130,12 +136,18 @@ class Soundboard(commands.Cog, name="Soundboard"):
             )
             return
 
-        await self._play_in_channel(interaction, sound_path, sound, target_channel)
+        await self._play_in_channel(
+            interaction,
+            sound_path,
+            sound,
+            target_channel,
+            volume=max(1, min(200, volume)) / 100,
+        )
 
     async def _disconnect(self, vc: discord.VoiceClient, error: Exception | None) -> None:
         """Desconecta el cliente de voz tras la reproducción."""
         if error:
-            print(f"[Soundboard] Playback error: {error}")
+            logger.error("Playback error: %s", error)
         await asyncio.sleep(0.5)
         if vc.is_connected():
             await vc.disconnect()
@@ -148,11 +160,11 @@ class Soundboard(commands.Cog, name="Soundboard"):
             await interaction.response.send_message("No available sounds.", ephemeral=True)
             return
         embed = discord.Embed(
-            title="Available sounds",
+            title=f"Available sounds ({len(available)})",
             description="\n".join(f"• `{s}`" for s in available),
             color=discord.Color.purple()
         )
-        embed.set_footer(text="Use /play <sound_name>")
+        embed.set_footer(text="Use /play <sound_name> [volume]")
         await interaction.response.send_message(embed=embed)
 
 

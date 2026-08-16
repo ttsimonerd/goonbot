@@ -29,6 +29,7 @@ class Settings(commands.Cog, name="Settings"):
         gambling_ch = interaction.guild.get_channel(data["gambling_channel_id"]) if data["gambling_channel_id"] else None
         suggestions_ch = interaction.guild.get_channel(data["suggestions_channel_id"]) if data["suggestions_channel_id"] else None
         winning_ch = interaction.guild.get_channel(data["gambling_winners_channel_id"]) if data["gambling_winners_channel_id"] else None
+        music_ch = interaction.guild.get_channel(data["music_channel_id"]) if data["music_channel_id"] else None
 
         embed = discord.Embed(title="⚙️ GoonBot's config", color=discord.Color.blurple())
         embed.add_field(
@@ -46,6 +47,11 @@ class Settings(commands.Cog, name="Settings"):
         embed.add_field(
             name="💡 Suggestion channel config:",
             value=suggestions_ch.mention if suggestions_ch else "*(auto-detect por nombre)*",
+            inline=False
+        )
+        embed.add_field(
+            name="🎵 Music links channel:",
+            value=music_ch.mention if music_ch else "*(not set)*",
             inline=False
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -100,6 +106,16 @@ class Settings(commands.Cog, name="Settings"):
             return
         await db.update_settings(interaction.guild_id, gambling_max_warns=warns)
         await interaction.response.send_message(f"✅ Maximum warns before ban set to: **{warns} warns**.", ephemeral=True)
+
+    @settings_group.command(name="music_channel", description="Set the channel scanned for music links.")
+    @app_commands.describe(channel="Channel to watch for shared music links")
+    async def set_music_channel(self, interaction: Interaction, channel: discord.TextChannel) -> None:
+        """Configura el canal donde se auto-detectan los enlaces de música."""
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
+        await db.update_settings(interaction.guild_id, music_channel_id=str(channel.id))
+        await interaction.response.send_message(f"✅ Music links channel set to: {channel.mention}.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

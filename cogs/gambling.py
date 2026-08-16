@@ -1,6 +1,7 @@
 import random
 import asyncio
 import datetime
+import logging
 import uuid
 from collections import Counter
 
@@ -9,6 +10,8 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------
@@ -88,17 +91,6 @@ def hand_rank_name(rank: int) -> str:
     return names[rank]
 
 
-def format_card_line(cards: list[str]) -> str:
-    return " ".join(f"`{card}`" for card in cards)
-
-
-def poker_hand_points(cards: list[str]) -> int:
-    rank, _ = poker_rank(cards)
-    rank_multiplier = [1, 2, 3, 4, 5, 6, 8, 10, 12][rank]
-    value_sum = sum(card_value(card) for card in cards)
-    return rank_multiplier * value_sum
-
-
 def roulette_wheel_display(wheel: int, color: str, choice: str) -> str:
     wheel_emoji = {"green": "🟢", "red": "🔴", "black": "⚫"}
     choice_emoji = {"green": "🟢", "red": "🔴", "black": "⚫", "even": "⚪", "odd": "⚫"}
@@ -147,8 +139,9 @@ class Gambling(commands.Cog, name="Gambling"):
 
     async def cog_load(self) -> None:
         """Arranca los bucles de fondo al cargar el cog."""
-        asyncio.create_task(self._daily_winners_loop())
-        asyncio.create_task(self._prediction_resolution_loop())
+        self.bot.create_background_task(self._daily_winners_loop())
+        self.bot.create_background_task(self._prediction_resolution_loop())
+        self.bot.create_background_task(self._lockout_cleanup_loop())
 
     async def _get_gambling_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
         settings = await db.get_settings(guild.id)
@@ -199,7 +192,7 @@ class Gambling(commands.Cog, name="Gambling"):
             try:
                 await channel.send(embed=embed)
             except Exception as e:
-                print(f"[Gambling] Failed to post daily winners in {guild.name}: {e}")
+                logger.error("Failed to post daily winners in %s: %s", guild.name, e)
 
     async def _resolve_due_predictions(self) -> None:
         """Resuelve las apuestas (votebet) que ya han vencido."""
@@ -271,7 +264,7 @@ class Gambling(commands.Cog, name="Gambling"):
                     try:
                         await channel.send(embed=embed)
                     except Exception as e:
-                        print(f"[Gambling] Failed to post prediction resolution in {guild.name}: {e}")
+                        logger.error("Failed to post prediction resolution in %s: %s", guild.name, e)
 
     async def _prediction_resolution_loop(self) -> None:
         """Bucle que resuelve predicciones cada 60s."""
@@ -302,20 +295,51 @@ class Gambling(commands.Cog, name="Gambling"):
             user, send_messages=False, reason=f"Gambling ban: {max_warns} warns reached."
         )
 
-    async def _unlock_channel(self, guild_id: int, user_id: int, lockout_hours: int) -> None:
-        """Desbloquea al usuario tras el tiempo de ban."""
-        await asyncio.sleep(lockout_hours * 3600)
-        guild = self.bot.get_guild(guild_id)
-        if guild is None:
-            return
+    async def _unlock_user(self, guild: discord.Guild, user_id: int) -> None:
+        """Reset a user's gambling lockout: channel override + DB state.
+
+        Idempotent, so it can be called from a command, the background
+        unlock task, or the restart-recovery loop.
+        """
         ch = await self._get_gambling_channel(guild)
         member = guild.get_member(user_id)
         if ch and member:
             await ch.set_permissions(member, send_messages=None, reason="Gambling ban expired.")
-        await db.update_user(guild_id, user_id, warns=0, locked_until=None)
+        await db.update_user(guild.id, user_id, warns=0, locked_until=None)
+
+    async def _unlock_channel(self, guild_id: int, user_id: int, lockout_hours: int) -> None:
+        """Desbloquea al usuario tras el tiempo de ban (tarea en segundo plano)."""
+        await asyncio.sleep(lockout_hours * 3600)
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            return
+        await self._unlock_user(guild, user_id)
+
+    async def _lockout_cleanup_loop(self) -> None:
+        """Recupera bloqueos expirados tras un reinicio del bot."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                await self._cleanup_expired_lockouts()
+            except Exception as e:
+                logger.error("Lockout cleanup error: %s", e)
+            await asyncio.sleep(60)
+
+    async def _cleanup_expired_lockouts(self) -> None:
+        """Unlocks every user whose lockout timestamp has passed."""
+        now = datetime.datetime.utcnow()
+        for guild in self.bot.guilds:
+            locked = await db.get_locked_users(guild.id)
+            for user_id, locked_until in locked:
+                try:
+                    unlock_dt = datetime.datetime.fromisoformat(locked_until)
+                except (ValueError, TypeError):
+                    continue
+                if now >= unlock_dt:
+                    await self._unlock_user(guild, int(user_id))
 
     @app_commands.command(name="roulette", description="Bet on roulette")
-    @app_commands.describe(bet="Bet", choice="red, black, even, odd o green")
+    @app_commands.describe(bet="Bet", choice="red, black, even, odd, green o número (0-36)")
     async def roulette(self, interaction: discord.Interaction, bet: int, choice: str | None = None) -> None:
         """Juega a la ruleta apostando dinero."""
         settings = await db.get_settings(interaction.guild_id)
@@ -336,7 +360,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 )
                 return
             else:
-                await db.update_user(interaction.guild_id, interaction.user.id, warns=0, locked_until=None)
+                await self._unlock_user(interaction.guild, interaction.user.id)
                 user["warns"] = 0
 
         current_money = user["money"]
@@ -350,11 +374,21 @@ class Gambling(commands.Cog, name="Gambling"):
             return
 
         valid_choices = {"red", "black", "even", "odd", "green"}
+        number_bet = None
         if choice:
             choice = choice.lower().strip()
-            if choice not in valid_choices:
+            if choice.isdigit():
+                number_bet = int(choice)
+                if number_bet < 0 or number_bet > 36:
+                    await interaction.response.send_message(
+                        "❌ Invalid number. Use 0-36, or red, black, even, odd, green.",
+                        ephemeral=True,
+                    )
+                    return
+            elif choice not in valid_choices:
                 await interaction.response.send_message(
-                    "❌ Invalid option. Use red, black, even, odd o green.", ephemeral=True
+                    "❌ Invalid option. Use red, black, even, odd, green o un número (0-36).",
+                    ephemeral=True,
                 )
                 return
         else:
@@ -366,7 +400,10 @@ class Gambling(commands.Cog, name="Gambling"):
         payout = 0
         choice_labels = {"red": "Rojo", "black": "Negro", "even": "Par", "odd": "Impar", "green": "Verde"}
 
-        if choice == "green":
+        if number_bet is not None:
+            win = (wheel == number_bet)
+            payout = bet * 35
+        elif choice == "green":
             win = (wheel == 0)
             payout = bet * 35
         elif choice in {"red", "black"}:
@@ -379,8 +416,9 @@ class Gambling(commands.Cog, name="Gambling"):
             win = wheel % 2 == 1
             payout = bet * 2
 
+        bet_label = f"número **{number_bet}**" if number_bet is not None else f"**{choice_labels.get(choice, choice)}**"
         result_desc = (
-            f"{interaction.user.mention} apostó {format_money(bet)} a **{choice_labels.get(choice, choice)}**.\n"
+            f"{interaction.user.mention} apostó {format_money(bet)} a {bet_label}.\n"
             f"{roulette_wheel_display(wheel, color, choice)}\n\n"
         )
 
@@ -398,7 +436,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 locked_until_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=LOCKOUT_HOURS)
                 await db.update_user(interaction.guild_id, interaction.user.id, locked_until=locked_until_dt.isoformat())
                 await self._lock_channel(interaction.guild, interaction.user)
-                asyncio.create_task(
+                self.bot.create_background_task(
                     self._unlock_channel(interaction.guild_id, interaction.user.id, LOCKOUT_HOURS)
                 )
                 result_desc += f"\n🔒 You have {new_warns} warns and got banned for {LOCKOUT_HOURS} hours."
@@ -485,6 +523,10 @@ class Gambling(commands.Cog, name="Gambling"):
                     winnings = int(bet * 2)
                     await db.add_money(guild_id, interaction.user.id, winnings)
                     await self.finish(interaction, "🎉 Win Win Win!", f"You: {user_total}. Dealer: {dealer_total}. You won {format_money(winnings)}.", True)
+                elif user_total == dealer_total:
+                    # Push — devuelve la apuesta original.
+                    await db.add_money(guild_id, interaction.user.id, bet)
+                    await self.finish(interaction, "🤝 Push", f"You: {user_total}. Dealer: {dealer_total}. Empate — se te devuelve la apuesta.", True)
                 else:
                     await self.finish(interaction, "😢 You lost...", f"You: {user_total}. Dealer: {dealer_total}. You loose!", False)
 
@@ -565,8 +607,9 @@ class Gambling(commands.Cog, name="Gambling"):
         guild_id = interaction.guild_id
 
         class BalatroView(discord.ui.View):
-            def __init__(self, round_number: int = 1, multiplier: float = 1.25) -> None:
+            def __init__(self, author_id: int, round_number: int = 1, multiplier: float = 1.25) -> None:
                 super().__init__(timeout=120)
+                self.author_id = author_id
                 self.round_number = round_number
                 self.multiplier = multiplier
                 self.bet = bet
@@ -609,6 +652,9 @@ class Gambling(commands.Cog, name="Gambling"):
 
             @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
             async def continue_round(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+                if interaction.user.id != self.author_id:
+                    await interaction.response.send_message("Ts isn't you game nih.", ephemeral=True)
+                    return
                 chance = self.get_success_chance()
                 if random.random() < chance:
                     self.round_number += 1
@@ -619,9 +665,12 @@ class Gambling(commands.Cog, name="Gambling"):
 
             @discord.ui.button(label="Stop", style=discord.ButtonStyle.success)
             async def cash_out(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+                if interaction.user.id != self.author_id:
+                    await interaction.response.send_message("Ts isn't you game nih.", ephemeral=True)
+                    return
                 await self.finish(interaction, True, f"You stopped after {self.round_number} rounds and won: {format_money(self.get_reward())}.")
 
-        view = BalatroView()
+        view = BalatroView(interaction.user.id)
         await interaction.response.send_message(embed=view.update_embed(), view=view)
 
     @prediction_group.command(name="create", description="Create custom poll bet")
@@ -780,17 +829,33 @@ class Gambling(commands.Cog, name="Gambling"):
 
     @app_commands.command(name="daily", description="Daily money reward")
     async def daily(self, interaction: discord.Interaction) -> None:
-        """Reclama la recompensa diaria."""
+        """Reclama la recompensa diaria, con bonus por racha de días consecutivos."""
         user = await db.get_user(interaction.guild_id, interaction.user.id)
-        today = datetime.datetime.utcnow().date().isoformat()
-        if user["daily_claimed"] == today:
+        today = datetime.datetime.utcnow().date()
+        if user["daily_claimed"] == today.isoformat():
             await interaction.response.send_message("❌ You already claimed the daily reward.", ephemeral=True)
             return
-        reward = random.randint(25, 100)
+
+        yesterday = (today - datetime.timedelta(days=1)).isoformat()
+        streak = (user["daily_streak"] + 1) if user["daily_claimed"] == yesterday else 1
+
+        base = random.randint(25, 100)
+        bonus = min(streak - 1, 7) * 10
+        reward = base + bonus
+
         new_balance = await db.add_money(interaction.guild_id, interaction.user.id, reward)
-        await db.update_user(interaction.guild_id, interaction.user.id, daily_claimed=today)
+        await db.update_user(
+            interaction.guild_id,
+            interaction.user.id,
+            daily_claimed=today.isoformat(),
+            daily_streak=streak,
+        )
+
+        streak_text = f" 🔥 Racha: {streak} días" + (f" (+{bonus} bonus)" if bonus else "")
         await interaction.response.send_message(
-            f"✅ ¡Daily reward redeemed! Won: {format_money(reward)}. Current money: {format_money(new_balance)}.", ephemeral=True
+            f"✅ ¡Daily reward redeemed! Won: {format_money(reward)}.{streak_text}\n"
+            f"Current money: {format_money(new_balance)}.",
+            ephemeral=True,
         )
 
     @app_commands.command(name="bet", description="Double your bet or not")
