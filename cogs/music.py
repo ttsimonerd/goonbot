@@ -20,6 +20,7 @@ import html as html_mod
 import logging
 import random
 import re
+import sqlite3
 from typing import Any
 from urllib.parse import urlparse
 
@@ -36,9 +37,37 @@ logger = logging.getLogger(__name__)
 NORMAL_COOLDOWN = 60
 RECLAIM_COOLDOWN = 60 * 60 * 24 * 3
 INITIAL_ELO = 1000
-WIN_GAIN_FRACTION = 0.50
-LOSS_FRACTION = 0.25
+ELO_STEAL_FRACTION = 0.5   # winner steals this fraction of the loser's ELO
+ELO_STEAL_MIN = 100        # ...but always steals at least this much
 EXTRACT_TIMEOUT = 45
+
+# Song of the Day
+SOTD_VOTE_WINDOW = 24 * 3600   # seconds the reactions stay open
+SOTD_BOOST_MIN = 120           # minimum extra ELO awarded to the SOTD winner
+SOTD_BOOST_MAX = 670           # maximum extra ELO awarded to the SOTD winner
+SOTD_MAX_WEEKLY = 2            # max times a song can appear in SOTD per week
+
+
+def lock_cooldown_seconds(elo: int) -> int:
+    """Cooldown for a song whose health (ELO) dropped to ``elo`` (≤ 0).
+
+    Deeper negatives lock for longer:
+      0 .. -50    → 1 day
+      -51 .. -150 → 2 days
+      -151 .. -300 → 3 days
+      -301 .. -500 → 5 days
+      < -500      → 7 days
+    """
+    depth = max(0, -elo)
+    if depth <= 50:
+        return 86400
+    if depth <= 150:
+        return 2 * 86400
+    if depth <= 300:
+        return 3 * 86400
+    if depth <= 500:
+        return 5 * 86400
+    return 7 * 86400
 
 _URL_RE = re.compile(r"https?://\S+")
 
@@ -330,12 +359,16 @@ async def extract_songs(url: str) -> list[tuple[str, str, str]]:
 class MusicBattleView(discord.ui.View):
     """Botones para votar en una batalla musical normal."""
 
-    def __init__(self, cog: "Music", battle_id: int, song_a: int, song_b: int) -> None:
+    def __init__(self, cog: "Music", battle_id: int, song_a: dict[str, Any], song_b: dict[str, Any]) -> None:
         super().__init__(timeout=180)
         self.cog = cog
         self.battle_id = battle_id
-        self.song_a = song_a
-        self.song_b = song_b
+        self.song_a = song_a["id"]
+        self.song_b = song_b["id"]
+        self.names = {
+            song_a["id"]: f"**{song_a['title']}** — {song_a['artist']}",
+            song_b["id"]: f"**{song_b['title']}** — {song_b['artist']}",
+        }
         self.votes: dict[int, int] = {}
         self.message: discord.Message | None = None
 
@@ -371,11 +404,12 @@ class MusicBattleView(discord.ui.View):
         await self.cog.finish_battle(self.battle_id, winner, a, b, special=False)
         await self._disable_and_edit()
         if channel:
-            await channel.send(f"**Batalla terminada:** ganó la canción con ID `{winner}`.")
+            await channel.send(f"**Batalla terminada:** ganó {self.names.get(winner, f'#{winner}')}.")
 
     async def on_timeout(self) -> None:
         """Resolve (or cancel) the battle when nobody reaches the vote threshold."""
         a, b = await self._tally()
+        winner: int | None = None
         if a + b == 0:
             await self.cog.cancel_battle(self.battle_id)
         else:
@@ -383,7 +417,10 @@ class MusicBattleView(discord.ui.View):
             await self.cog.finish_battle(self.battle_id, winner, a, b, special=False)
         await self._disable_and_edit()
         if self.message is not None and self.message.channel is not None:
-            msg = "**Batalla cancelada:** nadie votó a tiempo." if a + b == 0 else "**Batalla terminada por tiempo.**"
+            if winner is None:
+                msg = "**Batalla cancelada:** nadie votó a tiempo."
+            else:
+                msg = f"**Batalla terminada por tiempo:** ganó {self.names.get(winner, f'#{winner}')}."
             try:
                 await self.message.channel.send(msg)
             except discord.HTTPException:
@@ -393,12 +430,16 @@ class MusicBattleView(discord.ui.View):
 class ReclaimView(discord.ui.View):
     """Botones para votar en una batalla especial de recuperación."""
 
-    def __init__(self, cog: "Music", battle_id: int, challenger_song: int, target_song: int) -> None:
+    def __init__(self, cog: "Music", battle_id: int, challenger_song: dict[str, Any], target_song: dict[str, Any]) -> None:
         super().__init__(timeout=180)
         self.cog = cog
         self.battle_id = battle_id
-        self.challenger_song = challenger_song
-        self.target_song = target_song
+        self.challenger_song = challenger_song["id"]
+        self.target_song = target_song["id"]
+        self.names = {
+            challenger_song["id"]: f"**{challenger_song['title']}** — {challenger_song['artist']}",
+            target_song["id"]: f"**{target_song['title']}** — {target_song['artist']}",
+        }
         self.votes: dict[int, int] = {}
         self.message: discord.Message | None = None
 
@@ -434,13 +475,16 @@ class ReclaimView(discord.ui.View):
         await self.cog.finish_battle(self.battle_id, winner, a, b, special=True)
         await self._disable_and_edit()
         if channel:
-            await channel.send(
-                "**Batalla especial terminada.** La canción se queda con su propietario actual salvo que el retador haya ganado."
-            )
+            winner_name = self.names.get(winner, f'#{winner}')
+            if winner == self.challenger_song:
+                await channel.send(f"**Batalla especial terminada:** ganó {winner_name}. ¡La canción cambia de propietario!")
+            else:
+                await channel.send(f"**Batalla especial terminada:** ganó {winner_name}. El propietario conserva la canción.")
 
     async def on_timeout(self) -> None:
         """Resolve (or cancel) the reclaim battle on timeout."""
         a, b = await self._tally()
+        winner: int | None = None
         if a + b == 0:
             await self.cog.cancel_battle(self.battle_id)
         else:
@@ -448,7 +492,10 @@ class ReclaimView(discord.ui.View):
             await self.cog.finish_battle(self.battle_id, winner, a, b, special=True)
         await self._disable_and_edit()
         if self.message is not None and self.message.channel is not None:
-            msg = "**Batalla especial cancelada:** nadie votó a tiempo." if a + b == 0 else "**Batalla especial terminada por tiempo.**"
+            if winner is None:
+                msg = "**Batalla especial cancelada:** nadie votó a tiempo."
+            else:
+                msg = f"**Batalla especial terminada por tiempo:** ganó {self.names.get(winner, f'#{winner}')}."
             try:
                 await self.message.channel.send(msg)
             except discord.HTTPException:
@@ -460,6 +507,13 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+
+    async def cog_load(self) -> None:
+        """Cancel battles left 'pending' by a previous process — Discord's
+        voting buttons don't survive a restart, so they'd otherwise lock their
+        songs out of every future battle."""
+        await self.cancel_all_pending_battles()
+        self.bot.create_background_task(self._sotd_loop())
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -545,12 +599,13 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         return _song_dict(row) if row else None
 
     async def owner_song(self, guild_id: int, owner_id: int) -> dict[str, Any] | None:
-        """Highest-ELO song owned by a user (used as their reclaim champion)."""
+        """Highest-ELO unlocked song owned by a user (their reclaim champion)."""
         cur = await db._conn().execute(
             f"SELECT {SONG_COLUMNS} FROM music_songs "
             "WHERE guild_id=? AND owner_id=? AND deleted_at IS NULL "
+            "AND (locked_until IS NULL OR locked_until > ?) "
             "ORDER BY elo DESC, id ASC LIMIT 1",
-            (str(guild_id), str(owner_id)),
+            (str(guild_id), str(owner_id), now_iso()),
         )
         row = await cur.fetchone()
         return _song_dict(row) if row else None
@@ -567,17 +622,29 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         return [_song_dict(r) for r in rows]
 
     async def random_songs(self, guild_id: int, limit: int = 2) -> list[dict[str, Any]]:
-        """Random songs that aren't already locked in a pending battle."""
+        """Random battleable songs (not locked out, not in a pending battle)."""
         cur = await db._conn().execute(
             f"SELECT {SONG_COLUMNS} FROM music_songs "
             "WHERE guild_id=? AND deleted_at IS NULL "
+            "AND (locked_until IS NULL OR locked_until > ?) "
             "AND id NOT IN (SELECT song_a_id FROM music_battles WHERE status='pending') "
             "AND id NOT IN (SELECT song_b_id FROM music_battles WHERE status='pending') "
             "ORDER BY RANDOM() LIMIT ?",
-            (str(guild_id), limit),
+            (str(guild_id), now_iso(), limit),
         )
         rows = await cur.fetchall()
         return [_song_dict(r) for r in rows]
+
+    async def _distinct_owner_count(self, guild_id: int) -> int:
+        """Number of users who own at least one battleable song."""
+        cur = await db._conn().execute(
+            "SELECT COUNT(DISTINCT owner_id) FROM music_songs "
+            "WHERE guild_id=? AND deleted_at IS NULL "
+            "AND (locked_until IS NULL OR locked_until > ?)",
+            (str(guild_id), now_iso()),
+        )
+        row = await cur.fetchone()
+        return row[0] if row else 0
 
     # ------------------------------------------------------------------
     # Cooldowns
@@ -637,19 +704,26 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             platform = db.infer_platform(final_url)
             norm = normalize_url(final_url)
 
-            async with db._write_lock:
-                cur = await db._conn().execute(
-                    "INSERT INTO music_songs(guild_id,title,artist,url,normalized_url,platform,owner_id,is_original,elo,peak_elo,created_at) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                    (str(guild_id), title, artist, final_url, norm, platform,
-                     str(user_id), 0, INITIAL_ELO, INITIAL_ELO, now_iso()),
-                )
-                song_id = cur.lastrowid
-                await db._conn().execute(
-                    "INSERT INTO music_ownership(guild_id,song_id,owner_id,acquired_at) VALUES(?,?,?,?)",
-                    (str(guild_id), song_id, str(user_id), now_iso()),
-                )
-                await db._conn().commit()
+            try:
+                async with db._write_lock:
+                    cur = await db._conn().execute(
+                        "INSERT INTO music_songs(guild_id,title,artist,url,normalized_url,platform,owner_id,is_original,elo,peak_elo,created_at) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (str(guild_id), title, artist, final_url, norm, platform,
+                         str(user_id), 0, INITIAL_ELO, INITIAL_ELO, now_iso()),
+                    )
+                    song_id = cur.lastrowid
+                    await db._conn().execute(
+                        "INSERT INTO music_ownership(guild_id,song_id,owner_id,acquired_at) VALUES(?,?,?,?)",
+                        (str(guild_id), song_id, str(user_id), now_iso()),
+                    )
+                    await db._conn().commit()
+            except sqlite3.IntegrityError:
+                # Lost a race with a concurrent add of the same song.
+                existing = await self.song_by_url(guild_id, final_url)
+                if existing:
+                    duplicates.append({"title": existing["title"], "owner_id": existing["owner_id"]})
+                continue
 
             added.append({"title": title, "artist": artist, "url": final_url, "platform": platform})
 
@@ -678,7 +752,233 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             )
             await db._conn().commit()
 
-    async def finish_battle(self, battle_id: int, winner_id: int, votes_a: int, votes_b: int, special: bool) -> None:
+    async def cancel_all_pending_battles(self) -> None:
+        """Cancel pending *button* battles at startup (buttons don't survive
+        restarts). SOTD battles are left alone — they use reactions, which do
+        survive, and the SOTD loop resolves them when their window ends."""
+        async with db._write_lock:
+            await db._conn().execute(
+                "UPDATE music_battles SET status='cancelled', ended_at=? "
+                "WHERE status='pending' AND battle_type != 'sotd'",
+                (now_iso(),),
+            )
+            await db._conn().commit()
+
+    # ------------------------------------------------------------------
+    # Song of the Day (SOTD)
+    # ------------------------------------------------------------------
+
+    async def _get_battle_channel(self, guild: discord.Guild | None) -> discord.TextChannel | None:
+        """Return the configured battle/vote channel, if any."""
+        if guild is None:
+            return None
+        settings = await db.get_settings(guild.id)
+        ch_id = settings.get("music_battle_channel_id")
+        if ch_id:
+            return guild.get_channel(ch_id)
+        return None
+
+    async def _sotd_loop(self) -> None:
+        """Background loop: recover locked songs and run the daily Song of the Day."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                for guild in self.bot.guilds:
+                    await self._recover_locked_songs(guild.id)
+                    await self._resolve_due_sotd(guild)
+                    await self._maybe_start_sotd(guild)
+            except Exception:
+                logger.exception("Music loop crashed")
+            await asyncio.sleep(60)
+
+    async def _recover_locked_songs(self, guild_id: int) -> None:
+        """Reset songs whose knockout cooldown has elapsed back to 1000 ELO."""
+        async with db._write_lock:
+            cur = await db._conn().execute(
+                "SELECT id FROM music_songs "
+                "WHERE guild_id=? AND locked_until IS NOT NULL AND locked_until <= ?",
+                (str(guild_id), now_iso()),
+            )
+            rows = await cur.fetchall()
+            for (song_id,) in rows:
+                await db._conn().execute(
+                    "UPDATE music_songs SET elo=?, peak_elo=?, locked_until=NULL WHERE id=?",
+                    (INITIAL_ELO, INITIAL_ELO, song_id),
+                )
+            if rows:
+                await db._conn().commit()
+
+    async def _sotd_eligible_songs(self, guild_id: int) -> list[dict[str, Any]]:
+        """Songs eligible for SOTD: active, unlocked, not in a pending battle,
+        and under the weekly appearance cap."""
+        since = (dt.datetime.utcnow() - dt.timedelta(days=7)).replace(microsecond=0).isoformat()
+        cur = await db._conn().execute(
+            f"SELECT {SONG_COLUMNS} FROM music_songs s "
+            "WHERE s.guild_id=? AND s.deleted_at IS NULL "
+            "AND (s.locked_until IS NULL OR s.locked_until > ?) "
+            "AND s.id NOT IN (SELECT song_a_id FROM music_battles WHERE status='pending') "
+            "AND s.id NOT IN (SELECT song_b_id FROM music_battles WHERE status='pending') "
+            "AND (SELECT COUNT(*) FROM music_battles b WHERE b.battle_type='sotd' "
+            "AND b.started_at>=? AND (b.song_a_id=s.id OR b.song_b_id=s.id)) < ?",
+            (str(guild_id), now_iso(), since, SOTD_MAX_WEEKLY),
+        )
+        rows = await cur.fetchall()
+        return [_song_dict(r) for r in rows]
+
+    async def _battled_pairs(self, guild_id: int) -> set[frozenset[int]]:
+        """All song-id pairs that have ever faced each other in any battle."""
+        cur = await db._conn().execute(
+            "SELECT song_a_id, song_b_id FROM music_battles WHERE guild_id=?",
+            (str(guild_id),),
+        )
+        rows = await cur.fetchall()
+        return {frozenset((a, b)) for a, b in rows}
+
+    def _matchmake_sotd(
+        self,
+        songs: list[dict[str, Any]],
+        battled: set[frozenset[int]],
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Pick two songs from different owners with the closest ELO, avoiding
+        any pair that has already battled (re-battles are command-only)."""
+        best: tuple[int, dict[str, Any], dict[str, Any]] | None = None
+        for i in range(len(songs)):
+            for j in range(i + 1, len(songs)):
+                a, b = songs[i], songs[j]
+                if a["owner_id"] == b["owner_id"]:
+                    continue
+                if frozenset((a["id"], b["id"])) in battled:
+                    continue
+                diff = abs(a["elo"] - b["elo"])
+                if best is None or diff < best[0]:
+                    best = (diff, a, b)
+        if best is None:
+            return None
+        return best[1], best[2]
+
+    async def _has_pending_sotd(self, guild_id: int) -> bool:
+        cur = await db._conn().execute(
+            "SELECT id FROM music_battles WHERE guild_id=? AND battle_type='sotd' AND status='pending'",
+            (str(guild_id),),
+        )
+        return await cur.fetchone() is not None
+
+    async def _maybe_start_sotd(self, guild: discord.Guild) -> None:
+        if await self._has_pending_sotd(guild.id):
+            return
+        cur = await db._conn().execute(
+            "SELECT started_at FROM music_battles WHERE guild_id=? AND battle_type='sotd' "
+            "ORDER BY id DESC LIMIT 1",
+            (str(guild.id),),
+        )
+        row = await cur.fetchone()
+        if row:
+            last = dt.datetime.fromisoformat(row[0])
+            if (dt.datetime.utcnow() - last).total_seconds() < SOTD_VOTE_WINDOW:
+                return
+        await self._start_sotd(guild)
+
+    async def _start_sotd(self, guild: discord.Guild) -> None:
+        channel = await self._get_battle_channel(guild)
+        if channel is None:
+            return
+        songs = await self._sotd_eligible_songs(guild.id)
+        if len({s["owner_id"] for s in songs}) < 2:
+            return
+        battled = await self._battled_pairs(guild.id)
+        pair = self._matchmake_sotd(songs, battled)
+        if pair is None:
+            return
+        a, b = pair
+
+        async with db._write_lock:
+            cur = await db._conn().execute(
+                "INSERT INTO music_battles(guild_id,song_a_id,song_b_id,battle_type,started_at,channel_id,status) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (str(guild.id), a["id"], b["id"], "sotd", now_iso(), str(channel.id), "pending"),
+            )
+            battle_id = cur.lastrowid
+            await db._conn().commit()
+
+        embed = self.battle_embed("🎵 Canción del Día", a, b)
+        embed.add_field(
+            name="Vota con reacciones",
+            value="1️⃣ para la canción **A** · 2️⃣ para la canción **B**",
+            inline=False,
+        )
+        embed.set_footer(text=f"Votación abierta {SOTD_VOTE_WINDOW // 3600} horas")
+        try:
+            message = await channel.send(
+                content=f"🎵 **Canción del Día:** <@{a['owner_id']}> vs <@{b['owner_id']}>",
+                embed=embed,
+            )
+            await message.add_reaction("1️⃣")
+            await message.add_reaction("2️⃣")
+        except discord.HTTPException as exc:
+            logger.error("Failed to post SOTD in %s: %s", guild.name, exc)
+            await self.cancel_battle(battle_id)
+            return
+
+        async with db._write_lock:
+            await db._conn().execute(
+                "UPDATE music_battles SET message_id=? WHERE id=?", (str(message.id), battle_id)
+            )
+            await db._conn().commit()
+
+    async def _resolve_due_sotd(self, guild: discord.Guild) -> None:
+        now = dt.datetime.utcnow()
+        cur = await db._conn().execute(
+            "SELECT id, song_a_id, song_b_id, started_at, channel_id, message_id "
+            "FROM music_battles WHERE guild_id=? AND battle_type='sotd' AND status='pending'",
+            (str(guild.id),),
+        )
+        rows = await cur.fetchall()
+        for battle_id, a_id, b_id, started_at, channel_id, message_id in rows:
+            started = dt.datetime.fromisoformat(started_at)
+            if (now - started).total_seconds() < SOTD_VOTE_WINDOW:
+                continue
+
+            channel = guild.get_channel(int(channel_id)) if channel_id else None
+            votes_a = votes_b = 0
+            if channel is not None and message_id:
+                try:
+                    message = await channel.fetch_message(int(message_id))
+                    for reaction in message.reactions:
+                        emoji = str(reaction.emoji)
+                        if emoji == "1️⃣":
+                            votes_a = max(0, reaction.count - 1)
+                        elif emoji == "2️⃣":
+                            votes_b = max(0, reaction.count - 1)
+                except discord.HTTPException:
+                    pass
+
+            if votes_a == 0 and votes_b == 0:
+                await self.cancel_battle(battle_id)
+                if channel is not None:
+                    await channel.send("🎵 **Canción del Día cancelada:** nadie votó.")
+                continue
+
+            winner_id = a_id if votes_a > votes_b else b_id if votes_b > votes_a else random.choice([a_id, b_id])
+            boost = random.randint(SOTD_BOOST_MIN, SOTD_BOOST_MAX)
+            await self.finish_battle(battle_id, winner_id, votes_a, votes_b, special=False, boost=boost, reason="sotd")
+
+            winner = await self.song_by_id(guild.id, winner_id)
+            if winner is not None and channel is not None:
+                await channel.send(
+                    f"🏆 **Canción del Día:** ganó **{winner['title']}** — {winner['artist']} "
+                    f"(+{boost} ELO extra) · 1️⃣ {votes_a} vs 2️⃣ {votes_b}"
+                )
+
+    async def finish_battle(
+        self,
+        battle_id: int,
+        winner_id: int,
+        votes_a: int,
+        votes_b: int,
+        special: bool,
+        boost: int = 0,
+        reason: str = "battle",
+    ) -> None:
         """Apply a battle's outcome atomically: ELO, history, and (for reclaims) ownership."""
         conn = db._conn()
         async with db._write_lock:
@@ -701,16 +1001,29 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
 
             winner_elo = int(winner[0])
             loser_elo = int(loser[0])
-            gain = max(1, round(max(loser_elo, 0) * WIN_GAIN_FRACTION))
-            loss = max(1, round(max(winner_elo, 0) * LOSS_FRACTION))
-            new_winner = winner_elo + gain
-            new_loser = max(0, loser_elo - loss)
+
+            # Zero-sum "ELO steal": the winner takes ELO from the loser (plus
+            # any SOTD boost on top). The loser's health (ELO) can go negative.
+            steal = max(ELO_STEAL_MIN, round(loser_elo * ELO_STEAL_FRACTION))
+            new_winner = winner_elo + steal + boost
+            new_loser = loser_elo - steal
 
             await conn.execute(
                 "UPDATE music_songs SET elo=?, peak_elo=MAX(peak_elo,?) WHERE id=?",
                 (new_winner, new_winner, winner_id),
             )
             await conn.execute("UPDATE music_songs SET elo=? WHERE id=?", (new_loser, loser_id))
+
+            # Knockout: a song whose health hit 0 or below is locked out of
+            # battles until its cooldown ends (then reset to 1000).
+            if new_loser <= 0:
+                lock_until = (
+                    dt.datetime.utcnow() + dt.timedelta(seconds=lock_cooldown_seconds(new_loser))
+                ).replace(microsecond=0).isoformat()
+                await conn.execute(
+                    "UPDATE music_songs SET locked_until=? WHERE id=?", (lock_until, loser_id)
+                )
+
             await conn.execute(
                 "UPDATE music_battles SET status='finished',ended_at=?,winner_song_id=? WHERE id=?",
                 (now_iso(), winner_id, battle_id),
@@ -720,29 +1033,31 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             await conn.execute(
                 "INSERT INTO music_elo_history(guild_id,song_id,old_elo,new_elo,change,reason,reference_id,created_at) "
                 "VALUES(?,?,?,?,?,?,?,?)",
-                (guild_id, winner_id, winner_elo, new_winner, gain, "battle", battle_id, now_iso()),
+                (guild_id, winner_id, winner_elo, new_winner, steal + boost, reason, battle_id, now_iso()),
             )
             await conn.execute(
                 "INSERT INTO music_elo_history(guild_id,song_id,old_elo,new_elo,change,reason,reference_id,created_at) "
                 "VALUES(?,?,?,?,?,?,?,?)",
-                (guild_id, loser_id, loser_elo, new_loser, -loss, "battle", battle_id, now_iso()),
+                (guild_id, loser_id, loser_elo, new_loser, -steal, reason, battle_id, now_iso()),
             )
 
-            if special and winner_id == a_id:
-                # Challenger won: the target song (b_id) transfers to them.
-                challenger_owner = winner[1]
-                cur = await conn.execute("SELECT owner_id FROM music_songs WHERE id=?", (b_id,))
-                target_row = await cur.fetchone()
-                await conn.execute("UPDATE music_songs SET owner_id=? WHERE id=?", (challenger_owner, b_id))
-                await conn.execute(
-                    "INSERT INTO music_ownership(guild_id,song_id,owner_id,acquired_at,acquisition_type,claim_battle_id) "
-                    "VALUES(?,?,?,?,?,?)",
-                    (guild_id, b_id, challenger_owner, now_iso(), "claim", battle_id),
-                )
-                if target_row:
+            if special:
+                # Reclaim: the winner takes BOTH songs (the loser's song moves
+                # to the winner's owner).
+                winner_owner = winner[1]
+                loser_owner = loser[1]
+                if winner_owner != loser_owner:
+                    await conn.execute(
+                        "UPDATE music_songs SET owner_id=? WHERE id=?", (winner_owner, loser_id)
+                    )
+                    await conn.execute(
+                        "INSERT INTO music_ownership(guild_id,song_id,owner_id,acquired_at,acquisition_type,claim_battle_id) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (guild_id, loser_id, winner_owner, now_iso(), "claim", battle_id),
+                    )
                     await conn.execute(
                         "UPDATE music_ownership SET lost_at=? WHERE guild_id=? AND song_id=? AND owner_id=? AND lost_at IS NULL",
-                        (now_iso(), guild_id, b_id, target_row[0]),
+                        (now_iso(), guild_id, loser_id, loser_owner),
                     )
 
             await conn.commit()
@@ -843,9 +1158,9 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
     @app_commands.command(name="history", description="Muestra el historial de batallas musicales.")
     async def history(self, interaction: discord.Interaction) -> None:
         """Muestra el historial de batallas musicales."""
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         if interaction.guild_id is None:
-            await interaction.followup.send("Solo disponible en servidores.", ephemeral=True)
+            await interaction.followup.send("Solo disponible en servidores.")
             return
         cur = await db._conn().execute(
             "SELECT mb.id, mb.battle_type, mb.started_at, mb.winner_song_id, "
@@ -878,96 +1193,127 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
                 lines.append(f"{icon} **#{r[0]}** — {title_a} vs {title_b} → **{winner_title}**")
             embed.description = "\n".join(lines)
         embed.set_footer(text="Últimas 10 batallas")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="info", description="Muestra la información y propietario de una canción.")
     @app_commands.describe(url="URL de la canción")
     async def info(self, interaction: discord.Interaction, url: str) -> None:
         """Muestra la información y propietario de una canción."""
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         if interaction.guild_id is None:
-            await interaction.followup.send("Solo disponible en servidores.", ephemeral=True)
+            await interaction.followup.send("Solo disponible en servidores.")
             return
         song = await self.song_by_url(interaction.guild_id, url)
         if not song:
-            await interaction.followup.send("Esa canción todavía no está adjudicada.", ephemeral=True)
+            await interaction.followup.send("Esa canción todavía no está adjudicada.")
             return
         embed = discord.Embed(title=song["title"], description=song["artist"], url=song["url"])
         embed.add_field(name="Propietario", value=f"<@{song['owner_id']}>")
         embed.add_field(name="ELO", value=str(song["elo"]))
         embed.add_field(name="ELO máximo", value=str(song["peak_elo"]))
         embed.add_field(name="Cómo recuperarla", value="Usa `/music reclaim` para desafiar al propietario.")
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="battle", description="Inicia una batalla musical normal.")
     async def battle(self, interaction: discord.Interaction) -> None:
         """Inicia una batalla musical normal entre dos canciones."""
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         if interaction.guild_id is None:
-            await interaction.followup.send("Solo disponible en servidores.")
+            await interaction.followup.send("Solo disponible en servidores.", ephemeral=True)
             return
         left = await self.cooldown_remaining(interaction.guild_id, interaction.user.id, "normal")
         if left:
-            await interaction.followup.send(f"Tienes que esperar {left // 60} min {left % 60} s para otra batalla.")
+            await interaction.followup.send(f"Tienes que esperar {left // 60} min {left % 60} s para otra batalla.", ephemeral=True)
+            return
+
+        if await self._distinct_owner_count(interaction.guild_id) < 2:
+            await interaction.followup.send("Necesitas que al menos dos usuarios tengan canciones.", ephemeral=True)
             return
 
         songs = await self.random_songs(interaction.guild_id, 2)
         if len(songs) < 2:
-            await interaction.followup.send("Necesito al menos dos canciones adjudicadas.")
+            await interaction.followup.send("Necesito al menos dos canciones adjudicadas.", ephemeral=True)
             return
 
         a, b = songs
+        target = await self._get_battle_channel(interaction.guild)
+        if target is None:
+            target = interaction.channel
+        if target is None:
+            await interaction.followup.send("No encuentro el canal de batallas.", ephemeral=True)
+            return
+
         async with db._write_lock:
             cur = await db._conn().execute(
                 "INSERT INTO music_battles(guild_id,song_a_id,song_b_id,battle_type,started_at,channel_id,status) "
                 "VALUES(?,?,?,?,?,?,?)",
-                (str(interaction.guild_id), a["id"], b["id"], "normal", now_iso(), str(interaction.channel_id), "pending"),
+                (str(interaction.guild_id), a["id"], b["id"], "normal", now_iso(), str(target.id), "pending"),
             )
             battle_id = cur.lastrowid
             await db._conn().commit()
         await self.set_cooldown(interaction.guild_id, interaction.user.id, "normal", NORMAL_COOLDOWN)
 
         embed = self.battle_embed("⚔️ Batalla musical", a, b)
-        view = MusicBattleView(self, battle_id, a["id"], b["id"])
+        view = MusicBattleView(self, battle_id, a, b)
         view.add_item(discord.ui.Button(label=a["title"][:80], style=discord.ButtonStyle.primary))
         view.add_item(discord.ui.Button(label=b["title"][:80], style=discord.ButtonStyle.secondary))
         view.children[0].callback = lambda i: view.vote(i, a["id"])
         view.children[1].callback = lambda i: view.vote(i, b["id"])
-        view.message = await interaction.followup.send(embed=embed, view=view, wait=True)
+        message = await target.send(
+            content=f"⚔️ **Batalla musical:** <@{a['owner_id']}> vs <@{b['owner_id']}>",
+            embed=embed,
+            view=view,
+        )
+        view.message = message
+
+        async with db._write_lock:
+            await db._conn().execute(
+                "UPDATE music_battles SET message_id=? WHERE id=?", (str(message.id), battle_id)
+            )
+            await db._conn().commit()
+
+        await interaction.followup.send(f"⚔️ Batalla iniciada en {target.mention}.", ephemeral=True)
 
     @app_commands.command(name="reclaim", description="Desafía al propietario de una canción para intentar recuperarla.")
     @app_commands.describe(url="URL de la canción que quieres recuperar")
     async def reclaim(self, interaction: discord.Interaction, url: str) -> None:
         """Desafía al propietario de una canción en una batalla especial."""
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         if interaction.guild_id is None:
-            await interaction.followup.send("Solo disponible en servidores.")
+            await interaction.followup.send("Solo disponible en servidores.", ephemeral=True)
             return
         left = await self.cooldown_remaining(interaction.guild_id, interaction.user.id, "reclaim")
         if left:
             days = left // 86400
             hours = (left % 86400) // 3600
-            await interaction.followup.send(f"Tu próxima batalla especial estará disponible en {days}d {hours}h.")
+            await interaction.followup.send(f"Tu próxima batalla especial estará disponible en {days}d {hours}h.", ephemeral=True)
             return
 
         target = await self.song_by_url(interaction.guild_id, url)
         if not target:
-            await interaction.followup.send("Esa canción no está adjudicada.")
+            await interaction.followup.send("Esa canción no está adjudicada.", ephemeral=True)
             return
         if target["owner_id"] == interaction.user.id:
-            await interaction.followup.send("Ya eres el propietario de esa canción.")
+            await interaction.followup.send("Ya eres el propietario de esa canción.", ephemeral=True)
             return
 
         challenger = await self.owner_song(interaction.guild_id, interaction.user.id)
         if not challenger:
-            await interaction.followup.send("Necesitas tener al menos una canción adjudicada para desafiar.")
+            await interaction.followup.send("Necesitas tener al menos una canción adjudicada para desafiar.", ephemeral=True)
+            return
+
+        channel = await self._get_battle_channel(interaction.guild)
+        if channel is None:
+            channel = interaction.channel
+        if channel is None:
+            await interaction.followup.send("No encuentro el canal de batallas.", ephemeral=True)
             return
 
         async with db._write_lock:
             cur = await db._conn().execute(
                 "INSERT INTO music_battles(guild_id,song_a_id,song_b_id,battle_type,started_at,channel_id,status) "
                 "VALUES(?,?,?,?,?,?,?)",
-                (str(interaction.guild_id), challenger["id"], target["id"], "reclaim", now_iso(), str(interaction.channel_id), "pending"),
+                (str(interaction.guild_id), challenger["id"], target["id"], "reclaim", now_iso(), str(channel.id), "pending"),
             )
             battle_id = cur.lastrowid
             await db._conn().commit()
@@ -979,12 +1325,25 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             value="Si gana el retador, la canción objetivo cambia de propietario. Esta batalla tiene un cooldown largo.",
             inline=False,
         )
-        view = ReclaimView(self, battle_id, challenger["id"], target["id"])
+        view = ReclaimView(self, battle_id, challenger, target)
         view.add_item(discord.ui.Button(label=challenger["title"][:80], style=discord.ButtonStyle.primary))
         view.add_item(discord.ui.Button(label=target["title"][:80], style=discord.ButtonStyle.secondary))
         view.children[0].callback = lambda i: view.vote(i, challenger["id"])
         view.children[1].callback = lambda i: view.vote(i, target["id"])
-        view.message = await interaction.followup.send(embed=embed, view=view, wait=True)
+        message = await channel.send(
+            content=f"👑 **Batalla especial:** <@{interaction.user.id}> desafía a <@{target['owner_id']}>",
+            embed=embed,
+            view=view,
+        )
+        view.message = message
+
+        async with db._write_lock:
+            await db._conn().execute(
+                "UPDATE music_battles SET message_id=? WHERE id=?", (str(message.id), battle_id)
+            )
+            await db._conn().commit()
+
+        await interaction.followup.send(f"👑 Batalla especial iniciada en {channel.mention}.", ephemeral=True)
 
     def battle_embed(self, title: str, a: dict[str, Any], b: dict[str, Any]) -> discord.Embed:
         """Build the battle embed from two song dicts."""

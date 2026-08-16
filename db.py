@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS settings (
     gambling_max_warns INTEGER NOT NULL DEFAULT 3,
     gambling_winners_channel_id TEXT,
     suggestions_channel_id TEXT,
-    music_channel_id TEXT
+    music_channel_id TEXT,
+    music_battle_channel_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS dashboard_users (
@@ -118,7 +119,8 @@ CREATE TABLE IF NOT EXISTS music_songs (
     elo INTEGER NOT NULL DEFAULT 0,
     peak_elo INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
-    deleted_at TEXT
+    deleted_at TEXT,
+    locked_until TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_music_songs_guild_url
@@ -276,6 +278,11 @@ async def _migrate() -> None:
             "ALTER TABLE settings ADD COLUMN music_channel_id TEXT"
         )
 
+    if "music_battle_channel_id" not in columns:
+        await _connection.execute(
+            "ALTER TABLE settings ADD COLUMN music_battle_channel_id TEXT"
+        )
+
     cursor = await _connection.execute("PRAGMA table_info(economy)")
     rows = await cursor.fetchall()
     columns = {row[1] for row in rows}
@@ -298,6 +305,15 @@ async def _migrate() -> None:
         await _connection.execute(
             "ALTER TABLE allowed_channels "
             "ADD COLUMN allowed_users TEXT NOT NULL DEFAULT '[]'"
+        )
+
+    cursor = await _connection.execute("PRAGMA table_info(music_songs)")
+    rows = await cursor.fetchall()
+    columns = {row[1] for row in rows}
+
+    if "locked_until" not in columns:
+        await _connection.execute(
+            "ALTER TABLE music_songs ADD COLUMN locked_until TEXT"
         )
 
     # Backfill music_songs.platform for rows added before per-platform tagging
@@ -513,6 +529,7 @@ DEFAULT_SETTINGS = {
     "gambling_winners_channel_id": None,
     "suggestions_channel_id": None,
     "music_channel_id": None,
+    "music_battle_channel_id": None,
 }
 
 
@@ -522,7 +539,7 @@ async def get_settings(guild_id: int) -> dict[str, Any]:
     cursor = await db.execute(
         "SELECT gambling_channel_id, gambling_lockout_hours, "
         "gambling_max_warns, gambling_winners_channel_id, "
-        "suggestions_channel_id, music_channel_id "
+        "suggestions_channel_id, music_channel_id, music_battle_channel_id "
         "FROM settings WHERE guild_id = ?",
         (str(guild_id),),
     )
@@ -546,6 +563,7 @@ async def get_settings(guild_id: int) -> dict[str, Any]:
         "gambling_winners_channel_id": int(row[3]) if row[3] else None,
         "suggestions_channel_id": int(row[4]) if row[4] else None,
         "music_channel_id": int(row[5]) if row[5] else None,
+        "music_battle_channel_id": int(row[6]) if row[6] else None,
     }
 
 
