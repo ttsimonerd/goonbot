@@ -28,11 +28,6 @@ Content intent. The only privileged intent you must enable is **Server Members**
 | --- | --- | --- |
 | **Server Members Intent** | ✅ Yes | The web dashboard checks guild membership and resolves member names. |
 
-To enable it:
-
-1. Open your app in the [Discord Developer Portal](https://discord.com/developers/applications) → **Bot**.
-2. Under **Privileged Gateway Intents**, turn **SERVER MEMBERS INTENT** on.
-3. Save the changes and restart the bot.
 
 ### Intentionally disabled
 
