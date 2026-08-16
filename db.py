@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import os
 from typing import Any, Optional
 
@@ -83,7 +84,9 @@ CREATE TABLE IF NOT EXISTS message_logs (
 CREATE TABLE IF NOT EXISTS allowed_channels (
     channel_key TEXT PRIMARY KEY,
     channel_id TEXT NOT NULL,
-    label TEXT NOT NULL
+    label TEXT NOT NULL,
+    allowed_roles TEXT NOT NULL DEFAULT '[]',
+    allowed_users TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS dashboard_config (
@@ -272,6 +275,21 @@ async def _migrate() -> None:
     if "daily_streak" not in columns:
         await _connection.execute(
             "ALTER TABLE economy ADD COLUMN daily_streak INTEGER NOT NULL DEFAULT 0"
+        )
+
+    cursor = await _connection.execute("PRAGMA table_info(allowed_channels)")
+    rows = await cursor.fetchall()
+    columns = {row[1] for row in rows}
+
+    if "allowed_roles" not in columns:
+        await _connection.execute(
+            "ALTER TABLE allowed_channels "
+            "ADD COLUMN allowed_roles TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "allowed_users" not in columns:
+        await _connection.execute(
+            "ALTER TABLE allowed_channels "
+            "ADD COLUMN allowed_users TEXT NOT NULL DEFAULT '[]'"
         )
 
 
@@ -737,8 +755,9 @@ async def get_recent_messages(
 
 async def get_all_message_logs(
     limit: int = 100,
+    offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """For the admin moderation view — newest first."""
+    """For the admin moderation view — newest first, paginated."""
     db = _conn()
 
     cursor = await db.execute(
@@ -747,8 +766,8 @@ async def get_all_message_logs(
         "FROM message_logs ml "
         "LEFT JOIN dashboard_users du "
         "ON ml.discord_id = du.discord_id "
-        "ORDER BY ml.id DESC LIMIT ?",
-        (limit,),
+        "ORDER BY ml.id DESC LIMIT ? OFFSET ?",
+        (limit, offset),
     )
 
     rows = await cursor.fetchall()
@@ -765,15 +784,42 @@ async def get_all_message_logs(
     ]
 
 
+async def count_message_logs() -> int:
+    """Total number of logged messages (for admin pagination)."""
+    db = _conn()
+
+    cursor = await db.execute("SELECT COUNT(*) FROM message_logs")
+    row = await cursor.fetchone()
+    return row[0] if row else 0
+
+
 # ---------------------------------------------------------------------------
 # Allowed channels
 # ---------------------------------------------------------------------------
+
+def _parse_id_list(raw: str | None) -> list[str]:
+    """Parse a JSON-encoded list of IDs, tolerating legacy/empty values."""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(x) for x in parsed]
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return []
+
+
+def _dump_id_list(ids: list[str] | None) -> str:
+    """Serialize a list of IDs to the JSON string stored in the DB."""
+    return json.dumps(ids or [])
+
 
 async def get_allowed_channels() -> list[dict[str, Any]]:
     db = _conn()
 
     cursor = await db.execute(
-        "SELECT channel_key, channel_id, label "
+        "SELECT channel_key, channel_id, label, allowed_roles, allowed_users "
         "FROM allowed_channels ORDER BY label"
     )
 
@@ -784,6 +830,8 @@ async def get_allowed_channels() -> list[dict[str, Any]]:
             "channel_key": r[0],
             "channel_id": int(r[1]),
             "label": r[2],
+            "allowed_roles": _parse_id_list(r[3]),
+            "allowed_users": _parse_id_list(r[4]),
         }
         for r in rows
     ]
@@ -795,7 +843,7 @@ async def get_allowed_channel(
     db = _conn()
 
     cursor = await db.execute(
-        "SELECT channel_key, channel_id, label "
+        "SELECT channel_key, channel_id, label, allowed_roles, allowed_users "
         "FROM allowed_channels "
         "WHERE channel_key = ?",
         (channel_key,),
@@ -810,6 +858,8 @@ async def get_allowed_channel(
         "channel_key": row[0],
         "channel_id": int(row[1]),
         "label": row[2],
+        "allowed_roles": _parse_id_list(row[3]),
+        "allowed_users": _parse_id_list(row[4]),
     }
 
 
@@ -817,15 +867,23 @@ async def add_allowed_channel(
     channel_key: str,
     channel_id: int,
     label: str,
+    allowed_roles: list[str] | None = None,
+    allowed_users: list[str] | None = None,
 ) -> None:
     db = _conn()
 
     async with _write_lock:
         await db.execute(
             "INSERT OR REPLACE INTO allowed_channels "
-            "(channel_key, channel_id, label) "
-            "VALUES (?, ?, ?)",
-            (channel_key, str(channel_id), label),
+            "(channel_key, channel_id, label, allowed_roles, allowed_users) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                channel_key,
+                str(channel_id),
+                label,
+                _dump_id_list(allowed_roles),
+                _dump_id_list(allowed_users),
+            ),
         )
         await db.commit()
 
@@ -961,3 +1019,45 @@ async def set_sending_enabled(enabled: bool) -> None:
         "sending_enabled",
         "true" if enabled else "false",
     )
+
+
+# ---------------------------------------------------------------------------
+# API key (managed from the admin panel; source of truth for /api/* auth)
+# ---------------------------------------------------------------------------
+
+async def get_api_key() -> str | None:
+    """Return the dashboard-managed API key, or None if none is set."""
+    value = await get_config("goonbot_api_key", default=None)
+    return value if value else None
+
+
+async def get_api_key_created_at() -> str | None:
+    """ISO timestamp of when the current API key was generated."""
+    return await get_config("goonbot_api_key_created_at", default=None)
+
+
+async def set_api_key(key: str) -> None:
+    """Store a new API key, stamping its creation time."""
+    await set_config("goonbot_api_key", key)
+    await set_config(
+        "goonbot_api_key_created_at",
+        datetime.datetime.utcnow().isoformat(),
+    )
+
+
+async def clear_api_key() -> None:
+    """Revoke the current API key."""
+    await set_config("goonbot_api_key", "")
+    await set_config("goonbot_api_key_created_at", "")
+
+
+async def ensure_api_key_seeded() -> None:
+    """Seed the panel-managed key from GOONBOT_API_KEY on first run.
+
+    After this the admin panel is the source of truth; the env var only keeps
+    working if it still matches the panel's current key.
+    """
+    if await get_api_key() is None:
+        env_key = os.getenv("GOONBOT_API_KEY")
+        if env_key:
+            await set_api_key(env_key)

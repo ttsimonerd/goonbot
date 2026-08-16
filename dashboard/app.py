@@ -21,6 +21,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 
+from config import DASHBOARD_BASE_URL
 from dashboard.limiter import limiter
 from dashboard.routes import router as dashboard_router
 
@@ -40,7 +41,19 @@ def create_app(bot) -> FastAPI:
             "SESSION_SECRET is not set — required for signed session cookies. "
             "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
         )
-    app.add_middleware(SessionMiddleware, secret_key=session_secret, same_site="lax", https_only=True)
+    # The Secure cookie flag must only be set when the dashboard is actually
+    # served over HTTPS. Tying it to DASHBOARD_BASE_URL (the public URL) means
+    # local `http://localhost:8000` dev works, while a Coolify HTTPS domain
+    # keeps cookies Secure — the proxy terminates TLS, so the app itself sees
+    # plain http and can't infer this from the request.
+    https_only = DASHBOARD_BASE_URL.startswith("https://")
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret,
+        same_site="lax",
+        https_only=https_only,
+    )
+    logger.info("Dashboard session cookies: https_only=%s", https_only)
 
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Login — GoonBot{% endblock %}
 {% block content %}
+{% set error = request.query_params.get('error') %}
+{% if error %}
+  <div class="banner banner-error">
+    {% if error == 'oauth' %}No se pudo completar el login con Discord. Inténtalo de nuevo.
+    {% else %}Ocurrió un error.
+    {% endif %}
+  </div>
+{% endif %}
+
 <div class="center-card">
   <h1>GoonBot Dashboard</h1>
   <p class="subtitle">Inicia sesión con Discord para continuar.</p>

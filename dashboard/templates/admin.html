@@ -3,8 +3,24 @@
 {% block content %}
 
 {% set error = request.query_params.get('error') %}
+{% set key_generated = request.query_params.get('key_generated') %}
+{% set key_revoked = request.query_params.get('key_revoked') %}
+
 {% if error == 'invalid_channel_form' %}
   <div class="banner banner-error">Revisa el ID del canal (solo números) y que todos los campos estén rellenos.</div>
+{% elif error == 'confirm_required' %}
+  <div class="banner banner-error">Marca la casilla de confirmación para continuar.</div>
+{% endif %}
+
+{% if key_generated and generated_key %}
+  <div class="banner banner-success">
+    Nueva API key generada. Cópiala ahora — solo se muestra una vez:<br>
+    <code>{{ generated_key }}</code>
+  </div>
+{% endif %}
+
+{% if key_revoked %}
+  <div class="banner banner-success">API key revocada. La API está desactivada hasta que generes una nueva.</div>
 {% endif %}
 
 <div class="grid">
@@ -21,11 +37,48 @@
   </div>
 
   <div class="card">
+    <h3>GoonBot API Key</h3>
+    {% if api_key_masked %}
+      <p class="muted">Clave actual: <code>{{ api_key_masked }}</code>{% if api_key_created_at %} · generada {{ api_key_created_at }}{% endif %}</p>
+    {% else %}
+      <p class="muted">No hay API key configurada. La API está desactivada.</p>
+    {% endif %}
+    <form method="post" action="/admin/api-key/generate" class="send-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="confirm-label">
+        <input type="checkbox" name="confirm" required>
+        Entiendo que esto reemplaza la clave actual
+      </label>
+      <button type="submit" class="btn btn-primary">Generar nueva clave</button>
+    </form>
+    {% if api_key_masked %}
+    <form method="post" action="/admin/api-key/revoke" class="send-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="confirm-label">
+        <input type="checkbox" name="confirm" required>
+        Entiendo que esto desactiva el acceso a la API
+      </label>
+      <button type="submit" class="btn btn-danger">Revocar clave</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="card">
     <h3>Canales permitidos</h3>
     <ul class="channel-list">
       {% for ch in channels %}
         <li>
-          <span>{{ ch.label }} <span class="muted">(#{{ ch.channel_key }} → {{ ch.channel_id }})</span></span>
+          <span>
+            {{ ch.label }} <span class="muted">(#{{ ch.channel_key }} → {{ ch.channel_id }})</span>
+            <br>
+            <span class="muted">
+              {% if ch.allowed_roles or ch.allowed_users %}
+                Permitido: {% if ch.allowed_roles %}roles {{ ch.allowed_roles_names|join(', ') }}{% endif %}{% if ch.allowed_roles and ch.allowed_users %} · {% endif %}{% if ch.allowed_users %}usuarios {{ ch.allowed_users_names|join(', ') }}{% endif %}
+              {% else %}
+                Permitido: todos (sujeto a permisos de Discord)
+              {% endif %}
+            </span>
+          </span>
           <form method="post" action="/admin/channels/remove" class="inline-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="channel_key" value="{{ ch.channel_key }}">
@@ -39,14 +92,46 @@
 
     <form method="post" action="/admin/channels/add" class="send-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label for="channel_key">Clave interna (sin espacios, ej. "general")</label>
-      <input type="text" name="channel_key" id="channel_key" required pattern="[a-zA-Z0-9_\-]+">
-      <label for="channel_id">ID del canal de Discord</label>
-      <input type="text" name="channel_id" id="channel_id" required pattern="[0-9]+">
+      <label for="channel_select">Canal de Discord</label>
+      <select name="channel_id" id="channel_select" required>
+        <option value="" disabled selected>Selecciona un canal…</option>
+        {% for ch in guild_channels %}
+          <option value="{{ ch.id }}">#{{ ch.name }}</option>
+        {% endfor %}
+      </select>
       <label for="label">Nombre visible para los usuarios</label>
       <input type="text" name="label" id="label" required>
+      <label for="channel_key">Clave interna (sin espacios, ej. "general")</label>
+      <input type="text" name="channel_key" id="channel_key" required pattern="[a-zA-Z0-9_\-]+">
+      <label for="allowed_roles">Roles permitidos (opcional)</label>
+      <select name="allowed_roles" id="allowed_roles" multiple>
+        {% for role in guild_roles %}
+          <option value="{{ role.id }}">{{ role.name }}</option>
+        {% endfor %}
+      </select>
+      <label for="allowed_users">Usuarios permitidos (opcional)</label>
+      <select name="allowed_users" id="allowed_users" multiple>
+        {% for m in guild_members %}
+          <option value="{{ m.id }}">{{ m.name }}</option>
+        {% endfor %}
+      </select>
       <button type="submit" class="btn btn-primary">Añadir canal</button>
     </form>
+    <script>
+    (function () {
+      var sel = document.getElementById('channel_select');
+      var label = document.getElementById('label');
+      var key = document.getElementById('channel_key');
+      function slug(s) {
+        return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      }
+      sel.addEventListener('change', function () {
+        var name = sel.options[sel.selectedIndex].text.replace(/^#/, '');
+        if (name && !label.value.trim()) label.value = name;
+        if (name && !key.value.trim()) key.value = slug(name);
+      });
+    })();
+    </script>
   </div>
 
   <div class="card wide">
@@ -67,6 +152,15 @@
           {% endfor %}
         </tbody>
       </table>
+      <div class="pagination">
+        <span class="muted">{{ total }} mensajes · página {{ page }} de {{ total_pages }}</span>
+        {% if page > 1 %}
+          <a class="btn btn-secondary" href="/admin?page={{ page - 1 }}">← Anterior</a>
+        {% endif %}
+        {% if page < total_pages %}
+          <a class="btn btn-secondary" href="/admin?page={{ page + 1 }}">Siguiente →</a>
+        {% endif %}
+      </div>
     {% else %}
       <p class="muted">Todavía no hay mensajes registrados.</p>
     {% endif %}

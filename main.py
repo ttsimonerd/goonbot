@@ -463,6 +463,7 @@ async def main() -> None:
 
     try:
         await db.init_db()
+        await db.ensure_api_key_seeded()
         logger.info("✅ Database initialized")
         await run_services(token)
     finally:
