@@ -1,28 +1,26 @@
 import os
+import traceback
 import discord
 from discord.ext import commands
 from discord import app_commands
-import json
 import asyncio
-import random
-import aiohttp
-import base64
-from probabilities import roll_with_limit
 import requests
 import db
+from config import GUILD_ID, REDEPLOY_PASSWORD, WEBHOOK_URL
 
-intents = discord.Intents.all()
-intents.message_content = True
-
-# -----------------------------------------------------
-# Prefix, variables & things...
-# -----------------------------------------------------
-
-GUILD_ID = 1417556208767733823
-
+# We only need the members intent (for the dashboard membership checks and
+# member lookups). Message Content and Presence intents are intentionally NOT
+# requested: Discord now treats message content as a deprecated privileged
+# intent and pushes bots to use slash commands instead of prefix commands.
+intents = discord.Intents.default()
+intents.members = True
 
 class GoonBot(commands.Bot):
-    async def setup_hook(self):
+    async def setup_hook(self) -> None:
+        # Route unhandled task/loop exceptions (background loops, voice
+        # playback "after" callbacks, etc.) to our logging handler.
+        asyncio.get_running_loop().set_exception_handler(self._handle_loop_exception)
+
         extensions = [
             "cogs.music",
             "cogs.admin",
@@ -74,6 +72,79 @@ class GoonBot(commands.Bot):
         except Exception as e:
             print(f"❌ Sync error: {e}")
 
+    async def on_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ):
+        """Global slash-command error handler.
+
+        Runs for any application command across every cog, so a failure never
+        leaves the user with a silent "This interaction failed".
+        """
+        # CommandInvokeError wraps the real exception in .original.
+        error = getattr(error, "original", error)
+
+        command = interaction.command
+        command_name = command.qualified_name if command else "unknown"
+        print(f"[AppCommandError] {command_name}: {error!r}")
+
+        # Map known failures to friendly Spanish messages.
+        if isinstance(error, app_commands.errors.CommandOnCooldown):
+            message = f"⏳ Enfriamiento activo. Inténtalo de nuevo en {error.retry_after:.0f}s."
+        elif isinstance(error, app_commands.errors.MissingPermissions):
+            message = "❌ No tienes permisos para usar este comando."
+        elif isinstance(error, app_commands.errors.BotMissingPermissions):
+            message = f"❌ Me faltan permisos para hacer eso: {', '.join(error.missing_permissions)}."
+        elif isinstance(error, app_commands.errors.NoPrivateMessage):
+            message = "❌ Este comando solo funciona dentro de un servidor."
+        elif isinstance(error, app_commands.errors.TransformerError):
+            message = "❌ Valor inválido para uno de los argumentos."
+        elif isinstance(error, app_commands.errors.CommandNotFound):
+            message = "❌ Comando no encontrado."
+        elif isinstance(error, app_commands.errors.CheckFailure):
+            message = "❌ No tienes permiso para usar este comando."
+        else:
+            message = "❌ Ocurrió un error inesperado al ejecutar el comando."
+            traceback.print_exception(type(error), error, error.__traceback__)
+
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except Exception:
+            # Interaction expired or its response was already fully used.
+            pass
+
+    async def on_error(self, event_method: str, *args, **kwargs) -> None:
+        """Global handler for exceptions raised outside of commands.
+
+        Catches failures from Discord event listeners (on_ready, on_message,
+        voice events, and other gateway-dispatched callbacks) so they are
+        logged instead of being silently swallowed. Slash-command errors are
+        handled separately by on_app_command_error.
+        """
+        print(f"[EventError] Unhandled exception in {event_method}")
+        traceback.print_exc()
+
+    def _handle_loop_exception(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        context: dict,
+    ) -> None:
+        """Log unhandled asyncio task/loop exceptions.
+
+        Covers code paths that on_error can't reach: background tasks started
+        with asyncio.create_task() (the gambling loops, the soundboard's voice
+        "after" callback, etc.).
+        """
+        exception = context.get("exception")
+        if exception is not None:
+            print("[LoopError] Unhandled task exception:")
+            traceback.print_exception(type(exception), exception, exception.__traceback__)
+        else:
+            print(f"[LoopError] {context.get('message', 'unknown error')}")
 
 
 bot = GoonBot(
@@ -83,32 +154,9 @@ bot = GoonBot(
 )
 
 
-IMAGE_URLS = [
-    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745012944956/IMG_20251123_223528.jpg?ex=692578c2&is=69242742&hm=4b47769727c1751c0f1af171968e04cbe134e6c494a87811b7d6c1044d49b7e2",
-    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745344426136/IMG_20251123_223600.jpg?ex=692578c2&is=69242742&hm=2abd81e14fc934758414968a69baf6f4eca971f094adabc7a9cfc37b44da663",
-    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745986285749/IMG_20251123_223634.jpg?ex=692578c2&is=69242742&hm=115629a925ba57951db272b46001940669e6d2928b077d192ffa50d80244afb",
-    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267746334281851/IMG_20251123_223645.jpg?ex=692578c2&is=69242742&hm=829b1eb7f7225568105da7bd020a57aec8d43dacb225e8e5c4f0a8a6d935fec",
-    "https://cdn.discordapp.com/attachments/1417592875214176447/1442267745650606171/IMG_20251123_223622.jpg?ex=692578c2&is=69242742&hm=9a6666d6599e93084ac9dd010bcc8bcb8301ca2dd88191f1112ce061da66b7b",
-]
-
-PASSWORD = os.getenv("SECRET_CMD_PASSWORD")
-ALLOWED_USER_ID = 988470489909432334
-WEBHOOK_URL = os.getenv("WEBHOOK_DEP")
-NUKE_PASSWORD = os.getenv("NUKE_PASSWORD")
-REDEPLOY_PASSWORD = os.getenv("REDEPLOY_PASSWORD")
-
-
 # -----------------------------------------------------
 # Events
 # -----------------------------------------------------
-
-@bot.event
-async def on_message(message: discord.Message):
-    if message.author == bot.user:
-        return
-
-    await bot.process_commands(message)
-
 
 @bot.event
 async def on_ready():
@@ -119,67 +167,63 @@ async def on_ready():
 # Basicos
 # -----------------------------------------------------
 
-@bot.command()
-async def hola(ctx):
-    await ctx.send(
+@bot.tree.command(name="hola", description="Comprueba si el bot está vivo")
+async def hola(interaction: discord.Interaction):
+    await interaction.response.send_message(
         "PONG! Btw estoy funcionando y siendo hosteado en el server de ttsmcz RPI5. "
-        "(Alternativa a ^ping)"
+        "(Alternativa a /ping)"
     )
 
 
-@bot.command()
-async def ping(ctx):
-    await ctx.send(
+@bot.tree.command(name="ping", description="Comprueba si el bot está vivo")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(
         "¡Hola! Estoy funcionando y siendo hosteado en el server de ttsmcz RPI5. "
-        "(Alternativa a ^hola)"
+        "(Alternativa a /hola)"
     )
 
 
-@bot.command()
-async def qtfn(ctx):
-    author = ctx.author
-    await ctx.send(f"Que te fakin nigger {author.mention}")
+@bot.tree.command(name="qtfn", description="Que te fakin nigger")
+async def qtfn(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        f"Que te fakin nigger {interaction.user.mention}"
+    )
 
 
-@bot.command(name="help")
-async def help_command(ctx):
+@bot.tree.command(name="help", description="Lista de comandos del bot")
+async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📖 Goonbot — Lista de Comandos",
-        description="Prefijo: `^` para comandos normales. `/` para comandos de barra (slash).",
+        description="Todos los comandos usan `/` (comandos de barra).",
         color=discord.Color.blurple()
     )
 
     embed.add_field(
-        name="🔧 Básicos `^`",
+        name="🔧 Básicos",
         value=(
-            "`^hola` / `^ping` — Comprueba si el bot está vivo\n"
-            "`^qtfn` — Que te fakin nigger\n"
-            "`^help` — Esta ayuda"
+            "`/hola` / `/ping` — Comprueba si el bot está vivo\n"
+            "`/qtfn` — Que te fakin nigger\n"
+            "`/help` — Esta ayuda"
         ),
         inline=False
     )
 
     embed.add_field(
-        name="💬 Mensajes `^`",
+        name="💬 Mensajes",
         value=(
-            "`^message_add` — Guarda un mensaje\n"
-            "`^message_list` — Lista los mensajes guardados"
+            "`/message_add <mensaje>` — Guarda un mensaje\n"
+            "`/message_list` — Lista los mensajes guardados\n"
+            "`/edit_message` — Edita o elimina un mensaje tuyo"
         ),
         inline=False
     )
 
     embed.add_field(
-        name="💬 Mensajes `/`",
-        value="`/edit_message` — Edita o elimina un mensaje tuyo",
-        inline=False
-    )
-
-    embed.add_field(
-        name="😂 Diversión `^`",
+        name="😂 Diversión",
         value=(
-            "`^roast [@usuario]` — Insulta a alguien\n"
-            "`^rape [@usuario]` — Amenaza a alguien\n"
-            "`^rampage @usuario` — Rampage contra un usuario"
+            "`/roast [@usuario]` — Insulta a alguien\n"
+            "`/rape [@usuario]` — Amenaza a alguien\n"
+            "`/rampage @usuario` — Rampage contra un usuario"
         ),
         inline=False
     )
@@ -249,7 +293,7 @@ async def help_command(ctx):
         text="Goonbot • Hosteado por ttsmcz • Powered by Local Ollama (Qwen2.5 0.5B)"
     )
 
-    await ctx.send(embed=embed)
+    await interaction.response.send_message(embed=embed)
 
 
 # -----------------------------------------------------

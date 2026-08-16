@@ -135,16 +135,18 @@ def predict_success_chance(days: int) -> float:
 # Cog
 # ---------------------
 class Gambling(commands.Cog, name="Gambling"):
+    """Economía compartida y juegos de azar (ruleta, blackjack, póker, etc.)."""
 
     prediction_group = app_commands.Group(
         name="votebet",
         description="Poll bets"
     )
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    async def cog_load(self):
+    async def cog_load(self) -> None:
+        """Arranca los bucles de fondo al cargar el cog."""
         asyncio.create_task(self._daily_winners_loop())
         asyncio.create_task(self._prediction_resolution_loop())
 
@@ -173,7 +175,8 @@ class Gambling(commands.Cog, name="Gambling"):
                 return ch
         return None
 
-    async def _post_daily_winners(self):
+    async def _post_daily_winners(self) -> None:
+        """Publica el ranking diario en el canal de ganadores."""
         for guild in self.bot.guilds:
             channel = await self._get_gambling_winners_channel(guild)
             if channel is None:
@@ -198,7 +201,8 @@ class Gambling(commands.Cog, name="Gambling"):
             except Exception as e:
                 print(f"[Gambling] Failed to post daily winners in {guild.name}: {e}")
 
-    async def _resolve_due_predictions(self):
+    async def _resolve_due_predictions(self) -> None:
+        """Resuelve las apuestas (votebet) que ya han vencido."""
         now = datetime.datetime.utcnow()
         for guild in self.bot.guilds:
             predictions = await db.get_predictions(guild.id, include_settled=False)
@@ -269,13 +273,15 @@ class Gambling(commands.Cog, name="Gambling"):
                     except Exception as e:
                         print(f"[Gambling] Failed to post prediction resolution in {guild.name}: {e}")
 
-    async def _prediction_resolution_loop(self):
+    async def _prediction_resolution_loop(self) -> None:
+        """Bucle que resuelve predicciones cada 60s."""
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
             await self._resolve_due_predictions()
             await asyncio.sleep(60)
 
-    async def _daily_winners_loop(self):
+    async def _daily_winners_loop(self) -> None:
+        """Bucle que publica ganadores a medianoche UTC."""
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
             now = datetime.datetime.utcnow()
@@ -285,7 +291,8 @@ class Gambling(commands.Cog, name="Gambling"):
             await asyncio.sleep(wait_seconds)
             await self._post_daily_winners()
 
-    async def _lock_channel(self, guild: discord.Guild, user: discord.Member):
+    async def _lock_channel(self, guild: discord.Guild, user: discord.Member) -> None:
+        """Bloquea al usuario del canal de gambling."""
         settings = await db.get_settings(guild.id)
         max_warns = settings.get("gambling_max_warns", 3)
         ch = await self._get_gambling_channel(guild)
@@ -295,7 +302,8 @@ class Gambling(commands.Cog, name="Gambling"):
             user, send_messages=False, reason=f"Gambling ban: {max_warns} warns reached."
         )
 
-    async def _unlock_channel(self, guild_id: int, user_id: int, lockout_hours: int):
+    async def _unlock_channel(self, guild_id: int, user_id: int, lockout_hours: int) -> None:
+        """Desbloquea al usuario tras el tiempo de ban."""
         await asyncio.sleep(lockout_hours * 3600)
         guild = self.bot.get_guild(guild_id)
         if guild is None:
@@ -308,7 +316,8 @@ class Gambling(commands.Cog, name="Gambling"):
 
     @app_commands.command(name="roulette", description="Bet on roulette")
     @app_commands.describe(bet="Bet", choice="red, black, even, odd o green")
-    async def roulette(self, interaction: discord.Interaction, bet: int, choice: str | None = None):
+    async def roulette(self, interaction: discord.Interaction, bet: int, choice: str | None = None) -> None:
+        """Juega a la ruleta apostando dinero."""
         settings = await db.get_settings(interaction.guild_id)
         LOCKOUT_HOURS = settings.get("gambling_lockout_hours", 24)
         MAX_WARNS = settings.get("gambling_max_warns", 3)
@@ -402,7 +411,8 @@ class Gambling(commands.Cog, name="Gambling"):
 
     @app_commands.command(name="blackjack", description="Blackjack.")
     @app_commands.describe(bet="Bet quantity")
-    async def blackjack(self, interaction: discord.Interaction, bet: int):
+    async def blackjack(self, interaction: discord.Interaction, bet: int) -> None:
+        """Juega al blackjack contra la banca."""
         user = await db.get_user(interaction.guild_id, interaction.user.id)
         current_money = user["money"]
 
@@ -424,14 +434,14 @@ class Gambling(commands.Cog, name="Gambling"):
         guild_id = interaction.guild_id
 
         class BlackjackView(discord.ui.View):
-            def __init__(self, author_id: int):
+            def __init__(self, author_id: int) -> None:
                 super().__init__(timeout=120)
                 self.author_id = author_id
                 self.user_cards = user_cards
                 self.dealer_cards = dealer_cards
                 self.deck = deck
 
-            def update_embed(self, embed: discord.Embed):
+            def update_embed(self, embed: discord.Embed) -> discord.Embed:
                 embed.clear_fields()
                 embed.add_field(name="YOUR cards", value=" ".join(self.user_cards), inline=False)
                 embed.add_field(name="DEALER cards", value=f"{self.dealer_cards[0]} ??", inline=False)
@@ -439,7 +449,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 embed.set_footer(text=f"Total: {total}")
                 return embed
 
-            async def finish(self, interaction: discord.Interaction, result_title: str, description: str, win: bool):
+            async def finish(self, interaction: discord.Interaction, result_title: str, description: str, win: bool) -> None:
                 for child in self.children:
                     child.disabled = True
                 self.stop()
@@ -449,7 +459,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 await interaction.response.edit_message(embed=embed, view=self)
 
             @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary)
-            async def hit(self, interaction: discord.Interaction, button: discord.ui.Button):
+            async def hit(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
                 if interaction.user.id != self.author_id:
                     await interaction.response.send_message("Ts isn't you game nih.", ephemeral=True)
                     return
@@ -462,7 +472,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 await interaction.response.edit_message(embed=self.update_embed(embed), view=self)
 
             @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary)
-            async def stand(self, interaction: discord.Interaction, button: discord.ui.Button):
+            async def stand(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
                 if interaction.user.id != self.author_id:
                     await interaction.response.send_message("Ts isn't you game nih.", ephemeral=True)
                     return
@@ -485,7 +495,8 @@ class Gambling(commands.Cog, name="Gambling"):
 
     @app_commands.command(name="poker", description="Play poker with the bot.")
     @app_commands.describe(bet="Bet quantity")
-    async def poker(self, interaction: discord.Interaction, bet: int):
+    async def poker(self, interaction: discord.Interaction, bet: int) -> None:
+        """Juega una mano de póker rápida contra la banca."""
         user = await db.get_user(interaction.guild_id, interaction.user.id)
         current_money = user["money"]
 
@@ -536,7 +547,8 @@ class Gambling(commands.Cog, name="Gambling"):
 
     @app_commands.command(name="crash", description="Double it or nah.")
     @app_commands.describe(bet="Bet")
-    async def balatro(self, interaction: discord.Interaction, bet: int):
+    async def balatro(self, interaction: discord.Interaction, bet: int) -> None:
+        """Juego crash: continúa para subir el multiplicador o cobra."""
         user = await db.get_user(interaction.guild_id, interaction.user.id)
         current_money = user["money"]
 
@@ -553,7 +565,7 @@ class Gambling(commands.Cog, name="Gambling"):
         guild_id = interaction.guild_id
 
         class BalatroView(discord.ui.View):
-            def __init__(self, round_number: int = 1, multiplier: float = 1.25):
+            def __init__(self, round_number: int = 1, multiplier: float = 1.25) -> None:
                 super().__init__(timeout=120)
                 self.round_number = round_number
                 self.multiplier = multiplier
@@ -582,7 +594,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 embed.set_footer(text="Risk keeps growing every round...")
                 return embed
 
-            async def finish(self, interaction: discord.Interaction, success: bool, text: str):
+            async def finish(self, interaction: discord.Interaction, success: bool, text: str) -> None:
                 for child in self.children:
                     child.disabled = True
                 self.stop()
@@ -596,7 +608,7 @@ class Gambling(commands.Cog, name="Gambling"):
                 await interaction.response.edit_message(embed=embed, view=self)
 
             @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
-            async def continue_round(self, interaction: discord.Interaction, button: discord.ui.Button):
+            async def continue_round(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
                 chance = self.get_success_chance()
                 if random.random() < chance:
                     self.round_number += 1
@@ -606,7 +618,7 @@ class Gambling(commands.Cog, name="Gambling"):
                     await self.finish(interaction, False, f"Lol, you crashed {self.round_number}.")
 
             @discord.ui.button(label="Stop", style=discord.ButtonStyle.success)
-            async def cash_out(self, interaction: discord.Interaction, button: discord.ui.Button):
+            async def cash_out(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
                 await self.finish(interaction, True, f"You stopped after {self.round_number} rounds and won: {format_money(self.get_reward())}.")
 
         view = BalatroView()
@@ -618,7 +630,8 @@ class Gambling(commands.Cog, name="Gambling"):
         amount="Inicial bet",
         prediction_description="Description to show"
     )
-    async def create_prediction(self, interaction: discord.Interaction, days: int, amount: int, prediction_description: str):
+    async def create_prediction(self, interaction: discord.Interaction, days: int, amount: int, prediction_description: str) -> None:
+        """Crea una apuesta personalizada (poll bet)."""
         if amount <= 0:
             await interaction.response.send_message("❌ Invalid bet.", ephemeral=True)
             return
@@ -698,7 +711,8 @@ class Gambling(commands.Cog, name="Gambling"):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @prediction_group.command(name="status", description="Check you active polls.")
-    async def prediction_status(self, interaction: discord.Interaction):
+    async def prediction_status(self, interaction: discord.Interaction) -> None:
+        """Consulta tus apuestas activas."""
         predictions = await db.get_predictions(interaction.guild_id, include_settled=False)
         lines = []
         for pred in predictions:
@@ -717,7 +731,8 @@ class Gambling(commands.Cog, name="Gambling"):
 
     @app_commands.command(name="gambling_warns", description="Check warns.")
     @app_commands.describe(user="Target user")
-    async def gambling_warns(self, interaction: discord.Interaction, user: discord.Member = None):
+    async def gambling_warns(self, interaction: discord.Interaction, user: discord.Member = None) -> None:
+        """Consulta los warns de gambling de un usuario."""
         settings = await db.get_settings(interaction.guild_id)
         MAX_WARNS = settings.get("gambling_max_warns", 3)
 
@@ -741,7 +756,8 @@ class Gambling(commands.Cog, name="Gambling"):
     @app_commands.command(name="gambling_pardon", description="[ADMIN]")
     @app_commands.describe(user="Target user")
     @app_commands.default_permissions(administrator=True)
-    async def gambling_pardon(self, interaction: discord.Interaction, user: discord.Member):
+    async def gambling_pardon(self, interaction: discord.Interaction, user: discord.Member) -> None:
+        """Quita los warns de un usuario (admin)."""
         await db.update_user(interaction.guild_id, user.id, warns=0, locked_until=None)
 
         ch = await self._get_gambling_channel(interaction.guild)
@@ -754,7 +770,8 @@ class Gambling(commands.Cog, name="Gambling"):
 
     @app_commands.command(name="balance", description="Check your balance")
     @app_commands.describe(user="User")
-    async def balance(self, interaction: discord.Interaction, user: discord.Member = None):
+    async def balance(self, interaction: discord.Interaction, user: discord.Member = None) -> None:
+        """Muestra el saldo de un usuario."""
         target = user or interaction.user
         target_data = await db.get_user(interaction.guild_id, target.id)
         await interaction.response.send_message(
@@ -762,7 +779,8 @@ class Gambling(commands.Cog, name="Gambling"):
         )
 
     @app_commands.command(name="daily", description="Daily money reward")
-    async def daily(self, interaction: discord.Interaction):
+    async def daily(self, interaction: discord.Interaction) -> None:
+        """Reclama la recompensa diaria."""
         user = await db.get_user(interaction.guild_id, interaction.user.id)
         today = datetime.datetime.utcnow().date().isoformat()
         if user["daily_claimed"] == today:
@@ -777,7 +795,8 @@ class Gambling(commands.Cog, name="Gambling"):
 
     @app_commands.command(name="bet", description="Double your bet or not")
     @app_commands.describe(amount="Bet quantity")
-    async def bet(self, interaction: discord.Interaction, amount: int):
+    async def bet(self, interaction: discord.Interaction, amount: int) -> None:
+        """Dobla tu apuesta o piérdela."""
         if amount <= 0:
             await interaction.response.send_message("❌ Invalid bet quantity", ephemeral=True)
             return
@@ -813,7 +832,8 @@ class Gambling(commands.Cog, name="Gambling"):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="leaderboard", description="Gambling leaderboard.")
-    async def leaderboard(self, interaction: discord.Interaction):
+    async def leaderboard(self, interaction: discord.Interaction) -> None:
+        """Muestra el ranking de dinero."""
         top = await db.get_top_balances(interaction.guild_id, limit=10)
         if not top:
             await interaction.response.send_message("There is no data.", ephemeral=True)
@@ -827,5 +847,5 @@ class Gambling(commands.Cog, name="Gambling"):
         await interaction.response.send_message(embed=embed)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Gambling(bot))

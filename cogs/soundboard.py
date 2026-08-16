@@ -16,11 +16,13 @@ FFMPEG_OPTIONS = {
 
 
 class Soundboard(commands.Cog, name="Soundboard"):
+    """Reproduce sonidos locales en canales de voz (/play, /sounds)."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
     def get_sounds(self) -> list[str]:
+        """Devuelve los nombres de los sonidos disponibles."""
         if not os.path.isdir(AUDIO_DIR):
             return []
         return [
@@ -35,7 +37,8 @@ class Soundboard(commands.Cog, name="Soundboard"):
         sound_path: str,
         sound_name: str,
         target_channel: discord.VoiceChannel
-    ):
+    ) -> None:
+        """Conecta al canal y reproduce el sonido indicado."""
         for existing_vc in self.bot.voice_clients:
             if existing_vc.guild == interaction.guild:
                 await existing_vc.disconnect(force=True)
@@ -85,7 +88,8 @@ class Soundboard(commands.Cog, name="Soundboard"):
         sound: str,
         channel: Optional[discord.VoiceChannel] = None,
         user: Optional[discord.Member] = None,
-    ):
+    ) -> None:
+        """Reproduce un sonido en un canal de voz (o en el del usuario indicado)."""
         await interaction.response.defer()
 
         target_channel = None
@@ -128,7 +132,8 @@ class Soundboard(commands.Cog, name="Soundboard"):
 
         await self._play_in_channel(interaction, sound_path, sound, target_channel)
 
-    async def _disconnect(self, vc: discord.VoiceClient, error):
+    async def _disconnect(self, vc: discord.VoiceClient, error: Exception | None) -> None:
+        """Desconecta el cliente de voz tras la reproducción."""
         if error:
             print(f"[Soundboard] Playback error: {error}")
         await asyncio.sleep(0.5)
@@ -136,7 +141,8 @@ class Soundboard(commands.Cog, name="Soundboard"):
             await vc.disconnect()
 
     @app_commands.command(name="sounds", description="Un que?")
-    async def sounds(self, interaction: discord.Interaction):
+    async def sounds(self, interaction: discord.Interaction) -> None:
+        """Lista los sonidos disponibles."""
         available = self.get_sounds()
         if not available:
             await interaction.response.send_message("No available sounds.", ephemeral=True)
@@ -150,5 +156,5 @@ class Soundboard(commands.Cog, name="Soundboard"):
         await interaction.response.send_message(embed=embed)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Soundboard(bot))

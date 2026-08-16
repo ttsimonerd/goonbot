@@ -9,6 +9,8 @@ import db
 # Modal
 # ---------------------
 class SuggestionModal(ui.Modal, title="💡 New suggestion"):
+    """Formulario modal para recoger el título y la descripción de una sugerencia."""
+
     suggestion_title = ui.TextInput(
         label="Title",
         placeholder="Example: Add a command to...",
@@ -23,11 +25,12 @@ class SuggestionModal(ui.Modal, title="💡 New suggestion"):
         max_length=1000
     )
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         super().__init__()
         self.bot = bot
 
-    async def on_submit(self, interaction: Interaction):
+    async def on_submit(self, interaction: Interaction) -> None:
+        """Publica la sugerencia en el canal configurado con reacciones."""
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message(
@@ -77,19 +80,22 @@ class SuggestionModal(ui.Modal, title="💡 New suggestion"):
             ephemeral=True
         )
 
-    async def on_error(self, interaction: Interaction, error: Exception):
+    async def on_error(self, interaction: Interaction, error: Exception) -> None:
+        """Notifica al usuario cuando el modal falla."""
         await interaction.response.send_message(
             f"⚠️ Error: {error}", ephemeral=True
         )
 
 
 class Suggestions(commands.Cog, name="Suggestions"):
+    """Comando /suggest que envía sugerencias mediante un modal."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
     @app_commands.command(name="suggest", description="Send a suggestion")
-    async def suggest(self, interaction: Interaction):
+    async def suggest(self, interaction: Interaction) -> None:
+        """Abre el modal de sugerencias."""
         if interaction.guild is None:
             await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
             return
@@ -97,5 +103,5 @@ class Suggestions(commands.Cog, name="Suggestions"):
         await interaction.response.send_modal(modal)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Suggestions(bot))

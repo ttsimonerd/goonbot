@@ -17,6 +17,32 @@
 
 ---
 
+## 🔐 Discord Developer Portal — required intents
+
+The bot uses slash commands (`/`) only, so it does **not** need the Message
+Content intent. The only privileged intent you must enable is **Server Members**.
+
+### Required
+
+| Intent | Privileged | Why it's needed |
+| --- | --- | --- |
+| **Server Members Intent** | ✅ Yes | The web dashboard checks guild membership and resolves member names. |
+
+To enable it:
+
+1. Open your app in the [Discord Developer Portal](https://discord.com/developers/applications) → **Bot**.
+2. Under **Privileged Gateway Intents**, turn **SERVER MEMBERS INTENT** on.
+3. Save the changes and restart the bot.
+
+### Intentionally disabled
+
+| Intent | Why it's not needed |
+| --- | --- |
+| Message Content Intent | All commands are slash commands, which don't read message text. |
+| Presence Intent | The bot doesn't read user status/activity. |
+
+---
+
 ### Links & Contact
 - **GitHub Repos**: [ttsimonerd Repositories](https://github.com/ttsimonerd?tab=repositories)
 - **Discord Profile**: [el_navajas](https://discord.com/users/988470489909432334)

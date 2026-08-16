@@ -6,7 +6,8 @@ from discord import app_commands
 
 DB_FILE = "messages_db.txt"
 
-def cargar_mensajes():
+def cargar_mensajes() -> list[dict]:
+    """Carga los mensajes guardados, migrando el formato antiguo de líneas."""
     if not os.path.exists(DB_FILE) or os.path.getsize(DB_FILE) == 0:
         return []
     with open(DB_FILE, "r") as f:
@@ -22,7 +23,8 @@ def cargar_mensajes():
             guardar_mensajes(mensajes)
             return mensajes
 
-def guardar_mensajes(mensajes):
+def guardar_mensajes(mensajes: list[dict]) -> None:
+    """Persiste la lista de mensajes en el archivo JSON."""
     with open(DB_FILE, "w") as f:
         json.dump(mensajes, f, indent=4)
 
@@ -30,27 +32,30 @@ def guardar_mensajes(mensajes):
 class Mensajes(commands.Cog, name="Mensajes"):
     """Comandos para manejar mensajes guardados"""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
     # Add message
-    @commands.command(name="message_add")
-    async def message_add(self, ctx, *, mensaje: str):
+    @app_commands.command(name="message_add", description="Guarda un mensaje")
+    @app_commands.describe(mensaje="El mensaje a guardar")
+    async def message_add(self, interaction: discord.Interaction, mensaje: str) -> None:
+        """Guarda un mensaje en el archivo JSON."""
         mensajes = cargar_mensajes()
-        mensajes.append({"content": mensaje, "author_id": ctx.author.id})
+        mensajes.append({"content": mensaje, "author_id": interaction.user.id})
         guardar_mensajes(mensajes)
-        await ctx.send(f"✅ Mensaje añadido. Total mensajes: {len(mensajes)}")
+        await interaction.response.send_message(f"✅ Mensaje añadido. Total mensajes: {len(mensajes)}")
 
     # List messages
-    @commands.command(name="message_list")
-    async def message_list(self, ctx):
+    @app_commands.command(name="message_list", description="Lista los mensajes guardados")
+    async def message_list(self, interaction: discord.Interaction) -> None:
+        """Lista los mensajes guardados."""
         mensajes = cargar_mensajes()
         if not mensajes:
-            await ctx.send("No hay mensajes guardados.")
+            await interaction.response.send_message("No hay mensajes guardados.")
             return
         listado = "\n".join(
             [f"{i+1}. {m['content']}" for i, m in enumerate(mensajes)])
-        await ctx.send(f"📄 Mensajes guardados:\n{listado}")
+        await interaction.response.send_message(f"📄 Mensajes guardados:\n{listado}")
 
     # Edit/Del messages (Slash Comm)
     @app_commands.command(
@@ -65,7 +70,8 @@ class Mensajes(commands.Cog, name="Mensajes"):
                            interaction: discord.Interaction,
                            index: int,
                            new_content: str | None = None,
-                           delete: bool = False):
+                           delete: bool = False) -> None:
+        """Edita o elimina un mensaje guardado por el propio usuario."""
         mensajes = cargar_mensajes()
 
         if index < 1 or index > len(mensajes):
@@ -100,5 +106,5 @@ class Mensajes(commands.Cog, name="Mensajes"):
             await interaction.response.send_message(
                 "✅ Mensaje editado correctamente.", ephemeral=True)
 
-async def setup(bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Mensajes(bot))

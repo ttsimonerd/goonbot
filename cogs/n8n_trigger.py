@@ -9,11 +9,14 @@ N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL")
 
 
 class N8N(commands.Cog, name="N8N"):
-    def __init__(self, bot: commands.Bot):
+    """Comando /pluh que dispara un webhook de n8n."""
+
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
     @app_commands.command(name="pluh", description="Random")
-    async def trigger(self, interaction: discord.Interaction):
+    async def trigger(self, interaction: discord.Interaction) -> None:
+        """Dispara el webhook de n8n configurado."""
         if not N8N_WEBHOOK_URL:
             await interaction.response.send_message(
                 "❌ Request error: N8N_WEBHOOK_URL not configured", ephemeral=True
@@ -46,5 +49,5 @@ class N8N(commands.Cog, name="N8N"):
             await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(N8N(bot))

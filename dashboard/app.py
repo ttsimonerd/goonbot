@@ -10,10 +10,11 @@ constructs it.
 """
 
 import os
+import traceback
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -41,6 +42,19 @@ def create_app(bot) -> FastAPI:
 
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        """Log dashboard exceptions that no more-specific handler catches.
+
+        HTTPException, request validation and rate-limit errors keep their
+        own handlers; this only fires for genuinely unexpected failures.
+        """
+        print(
+            f"[DashboardError] Unhandled exception in {request.method} {request.url.path}"
+        )
+        traceback.print_exception(type(exc), exc, exc.__traceback__)
+        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
     static_dir = BASE_DIR / "static"
     static_dir.mkdir(exist_ok=True)

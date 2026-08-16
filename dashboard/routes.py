@@ -21,8 +21,9 @@ MAX_MESSAGE_LENGTH = 500
 
 async def get_current_member(request: Request):
     """Returns (session_user, live_member) or (None, None). Re-validates
-    membership against the bot's in-memory cache on every call (cheap, no
-    API request) so someone who left the server loses access immediately.
+    membership via check_membership() — cache lookup first, with a
+    fetch_member() fallback — so access is revoked the moment someone leaves
+    the server, even if they aren't in the member cache.
 
     Also ensures a dashboard_users row exists — defensive, in case a session
     ever outlives its corresponding DB row (e.g. it was cleared manually)."""
@@ -30,9 +31,8 @@ async def get_current_member(request: Request):
     if not user:
         return None, None
     bot = request.app.state.bot
-    guild = bot.get_guild(GUILD_ID)
-    member = guild.get_member(int(user["discord_id"])) if guild else None
-    if member is None:
+    is_member, member = await check_membership(bot, int(user["discord_id"]))
+    if not is_member or member is None:
         request.session.clear()
         return None, None
     await db.upsert_dashboard_user(int(user["discord_id"]), user["username"], user["avatar_url"])
@@ -175,6 +175,7 @@ async def admin_home(request: Request):
         "admin.html",
         {
             "user": user,
+            "is_admin": True,
             "logs": logs,
             "channels": channels,
             "sending_enabled": sending_enabled,
@@ -257,10 +258,9 @@ async def member_exists(
     except (KeyError, ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid discordUserId")
 
-    # Search member
-    member = guild.get_member(discord_id)
-
-    if member is None:
+    # Search member — cache first, then a direct API lookup as fallback.
+    is_member, member = await check_membership(bot, discord_id)
+    if not is_member or member is None:
         return {
             "exists": False
         }

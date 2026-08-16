@@ -2,7 +2,7 @@
 Guild membership check via the live discord.py bot object — no separate
 API call, no `guilds` OAuth scope, no token duplication. Requires the
 Server Members privileged intent to be enabled (both in code, already set
-via Intents.all() in main.py, and in the Discord Developer Portal).
+via ``intents.members = True`` in main.py, and in the Discord Developer Portal).
 """
 
 import discord

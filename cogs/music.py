@@ -76,7 +76,9 @@ async def extract_song(url: str) -> tuple[str, str, str]:
 
 
 class MusicBattleView(discord.ui.View):
-    def __init__(self, cog: "Music", battle_id: int, song_a: int, song_b: int):
+    """Vista de botones para votar en una batalla musical normal."""
+
+    def __init__(self, cog: "Music", battle_id: int, song_a: int, song_b: int) -> None:
         super().__init__(timeout=180)
         self.cog = cog
         self.battle_id = battle_id
@@ -85,7 +87,7 @@ class MusicBattleView(discord.ui.View):
         self.votes: dict[int, int] = {}
         self.message: Optional[discord.Message] = None
 
-    async def vote(self, interaction: discord.Interaction, song_id: int):
+    async def vote(self, interaction: discord.Interaction, song_id: int) -> None:
         if interaction.user.bot:
             return
         self.votes[interaction.user.id] = song_id
@@ -97,7 +99,7 @@ class MusicBattleView(discord.ui.View):
         if a + b >= 3:
             await self.finish(interaction.channel, a, b)
 
-    async def finish(self, channel: Optional[discord.abc.Messageable], a: int, b: int):
+    async def finish(self, channel: Optional[discord.abc.Messageable], a: int, b: int) -> None:
         if self.message is None:
             return
         winner = self.song_a if a > b else self.song_b if b > a else random.choice([self.song_a, self.song_b])
@@ -113,7 +115,9 @@ class MusicBattleView(discord.ui.View):
 
 
 class ReclaimView(discord.ui.View):
-    def __init__(self, cog: "Music", battle_id: int, challenger_song: int, target_song: int):
+    """Vista de botones para votar en una batalla especial de recuperación."""
+
+    def __init__(self, cog: "Music", battle_id: int, challenger_song: int, target_song: int) -> None:
         super().__init__(timeout=180)
         self.cog = cog
         self.battle_id = battle_id
@@ -122,7 +126,7 @@ class ReclaimView(discord.ui.View):
         self.votes: dict[int, int] = {}
         self.message: Optional[discord.Message] = None
 
-    async def vote(self, interaction: discord.Interaction, song_id: int):
+    async def vote(self, interaction: discord.Interaction, song_id: int) -> None:
         self.votes[interaction.user.id] = song_id
         await interaction.response.send_message("Voto registrado.", ephemeral=True)
         a = sum(v == self.challenger_song for v in self.votes.values())
@@ -130,7 +134,7 @@ class ReclaimView(discord.ui.View):
         if a + b >= 5:
             await self.finish(interaction.channel, a, b)
 
-    async def finish(self, channel: Optional[discord.abc.Messageable], a: int, b: int):
+    async def finish(self, channel: Optional[discord.abc.Messageable], a: int, b: int) -> None:
         if self.message is None:
             return
         winner = self.challenger_song if a > b else self.target_song if b > a else random.choice([self.challenger_song, self.target_song])
@@ -146,15 +150,19 @@ class ReclaimView(discord.ui.View):
 
 
 class Music(commands.GroupCog, group_name="music", description="Colección de canciones y batallas"):
-    def __init__(self, bot: commands.Bot):
+    """Colección de canciones, propiedad y sistema de batallas musicales."""
+
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self._schema_ready = False
         self._cooldowns: dict[tuple[int, int, str], float] = {}
 
-    async def cog_load(self):
+    async def cog_load(self) -> None:
+        """Prepara el esquema de la base de datos al cargar."""
         await self.ensure_schema()
 
-    async def ensure_schema(self):
+    async def ensure_schema(self) -> None:
+        """Crea las tablas de música si no existen."""
         if self._schema_ready:
             return
         conn = db._conn()
@@ -221,7 +229,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         await conn.commit()
         self._schema_ready = True
 
-    async def song_by_id(self, guild_id: int, song_id: int):
+    async def song_by_id(self, guild_id: int, song_id: int) -> tuple | None:
         cur = await db._conn().execute(
             "SELECT id,title,artist,url,owner_id,elo,peak_elo,created_at FROM music_songs "
             "WHERE guild_id=? AND id=? AND deleted_at IS NULL",
@@ -229,7 +237,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         )
         return await cur.fetchone()
 
-    async def song_by_url(self, guild_id: int, url: str):
+    async def song_by_url(self, guild_id: int, url: str) -> tuple | None:
         cur = await db._conn().execute(
             "SELECT id,title,artist,url,owner_id,elo,peak_elo,created_at FROM music_songs "
             "WHERE guild_id=? AND normalized_url=? AND deleted_at IS NULL",
@@ -237,7 +245,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         )
         return await cur.fetchone()
 
-    async def owner_song(self, guild_id: int, owner_id: int):
+    async def owner_song(self, guild_id: int, owner_id: int) -> tuple | None:
         cur = await db._conn().execute(
             "SELECT id,title,artist,url,owner_id,elo FROM music_songs "
             "WHERE guild_id=? AND owner_id=? AND deleted_at IS NULL ORDER BY elo DESC LIMIT 1",
@@ -259,7 +267,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         except Exception:
             return 0
 
-    async def set_cooldown(self, guild_id: int, user_id: int, kind: str, seconds: int):
+    async def set_cooldown(self, guild_id: int, user_id: int, kind: str, seconds: int) -> None:
         available = dt.datetime.utcnow() + dt.timedelta(seconds=seconds)
         async with db._write_lock:
             await db._conn().execute(
@@ -271,7 +279,8 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
 
     @app_commands.command(name="add", description="Añade una canción y te la adjudica.")
     @app_commands.describe(url="URL de YouTube u otra plataforma compatible")
-    async def add(self, interaction: discord.Interaction, url: str):
+    async def add(self, interaction: discord.Interaction, url: str) -> None:
+        """Añade una canción y te la adjudica."""
         await interaction.response.defer(ephemeral=True)
         if interaction.guild_id is None:
             await interaction.followup.send("Este comando solo funciona dentro de un servidor.", ephemeral=True)
@@ -325,7 +334,8 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="history", description="Muestra el historial de batallas musicales.")
-    async def history(self, interaction: discord.Interaction):
+    async def history(self, interaction: discord.Interaction) -> None:
+        """Muestra el historial de batallas musicales."""
         await interaction.response.defer(ephemeral=True)
         if interaction.guild_id is None:
             await interaction.followup.send("Solo disponible en servidores.", ephemeral=True)
@@ -363,7 +373,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         embed.set_footer(text="Últimas 10 batallas")
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    async def _song_id_by_title_pair(self, guild_id, title, artist):
+    async def _song_id_by_title_pair(self, guild_id: int, title: str, artist: str) -> int | None:
         cur = await db._conn().execute(
             "SELECT id FROM music_songs WHERE guild_id=? AND title=? AND artist=? LIMIT 1",
             (str(guild_id), title, artist),
@@ -373,7 +383,8 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
 
     @app_commands.command(name="info", description="Muestra la información y propietario de una canción.")
     @app_commands.describe(url="URL de la canción")
-    async def info(self, interaction: discord.Interaction, url: str):
+    async def info(self, interaction: discord.Interaction, url: str) -> None:
+        """Muestra la información y propietario de una canción."""
         await interaction.response.defer(ephemeral=True)
         if interaction.guild_id is None:
             await interaction.followup.send("Solo disponible en servidores.", ephemeral=True)
@@ -390,7 +401,8 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="battle", description="Inicia una batalla musical normal.")
-    async def battle(self, interaction: discord.Interaction):
+    async def battle(self, interaction: discord.Interaction) -> None:
+        """Inicia una batalla musical normal entre dos canciones."""
         await interaction.response.defer()
         if interaction.guild_id is None:
             await interaction.followup.send("Solo disponible en servidores.")
@@ -433,7 +445,8 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
 
     @app_commands.command(name="reclaim", description="Desafía al propietario de una canción para intentar recuperarla.")
     @app_commands.describe(url="URL de la canción que quieres recuperar")
-    async def reclaim(self, interaction: discord.Interaction, url: str):
+    async def reclaim(self, interaction: discord.Interaction, url: str) -> None:
+        """Desafía al propietario de una canción en una batalla especial."""
         await interaction.response.defer()
         if interaction.guild_id is None:
             await interaction.followup.send("Solo disponible en servidores.")
@@ -468,7 +481,11 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
             await db._conn().commit()
         await self.set_cooldown(interaction.guild_id, interaction.user.id, "reclaim", RECLAIM_COOLDOWN)
 
-        embed = self.battle_embed("👑 Batalla especial — recuperar canción", challenger, target, special=True)
+        # battle_embed() expects rows shaped like (id, title, artist, owner_id, elo),
+        # but owner_song()/song_by_url() return extra columns, so trim them here.
+        challenger_view = (challenger[0], challenger[1], challenger[2], challenger[4], challenger[5])
+        target_view = (target[0], target[1], target[2], target[4], target[5])
+        embed = self.battle_embed("👑 Batalla especial — recuperar canción", challenger_view, target_view, special=True)
         embed.add_field(
             name="Regla especial",
             value="Si gana el retador, la canción objetivo cambia de propietario. Esta batalla tiene un cooldown largo.",
@@ -481,14 +498,14 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         view.children[1].callback = lambda i: view.vote(i, target[0])
         view.message = await interaction.followup.send(embed=embed, view=view, wait=True)
 
-    def battle_embed(self, title, a, b, special=False):
+    def battle_embed(self, title: str, a: tuple, b: tuple, special: bool = False) -> discord.Embed:
         embed = discord.Embed(title=title)
         embed.add_field(name="A", value=f"**{a[1]}**\n{a[2]}\nELO: `{a[4] if len(a) > 4 else a[5]}`\nPropietario: <@{a[3] if len(a) > 3 else a[4]}>", inline=True)
         embed.add_field(name="B", value=f"**{b[1]}**\n{b[2]}\nELO: `{b[4] if len(b) > 4 else b[5]}`\nPropietario: <@{b[3] if len(b) > 3 else b[4]}>", inline=True)
         embed.set_footer(text="Vota con los botones de abajo.")
         return embed
 
-    async def finish_battle(self, battle_id: int, winner_id: int, votes_a: int, votes_b: int, special: bool):
+    async def finish_battle(self, battle_id: int, winner_id: int, votes_a: int, votes_b: int, special: bool) -> None:
         conn = db._conn()
         cur = await conn.execute(
             "SELECT guild_id,song_a_id,song_b_id,status FROM music_battles WHERE id=?",
@@ -544,9 +561,9 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
                     )
             await conn.commit()
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         pass
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Music(bot))

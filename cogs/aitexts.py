@@ -10,6 +10,7 @@ DEFAULT_SYSTEM_PROMPT = os.getenv("OLLAMA_SYSTEM_PROMPT")
 
 
 async def call_ollama(prompt: str, system: str | None = DEFAULT_SYSTEM_PROMPT) -> str:
+    """Envía un prompt al servidor local de Ollama y devuelve la respuesta."""
     url = f"{OLLAMA_URL.rstrip('/')}/api/chat"
     
     messages = []
@@ -36,8 +37,9 @@ async def call_ollama(prompt: str, system: str | None = DEFAULT_SYSTEM_PROMPT) -
 
 
 class AITexts(commands.Cog, name="AITexts"):
+    """Comando /lefa para hablar con la IA local (Ollama)."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
     @app_commands.command(name="lefa", description="Ai Ai Ai Aii")
@@ -46,7 +48,8 @@ class AITexts(commands.Cog, name="AITexts"):
         self,
         interaction: Interaction,
         prompt: str
-    ):
+    ) -> None:
+        """Responde con la salida de la IA local en un embed."""
         await interaction.response.defer()
 
         try:
@@ -64,5 +67,5 @@ class AITexts(commands.Cog, name="AITexts"):
             await interaction.followup.send(f"❌ Error al procesar la solicitud: {e}")
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(AITexts(bot))

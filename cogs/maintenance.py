@@ -8,7 +8,8 @@ DISCORD_CHANNEL_ID = 1438967391513219132
 RCON_HOST = "localhost"
 RCON_PORT = 25575
 
-async def run_mc_command(command: str):
+async def run_mc_command(command: str) -> str:
+    """Ejecuta un comando RCON en el contenedor de Minecraft y devuelve su salida."""
     proc = await __import__('asyncio').create_subprocess_shell(
         f"sudo docker exec minecraft-f1p4dva1nj1mnqfd45slwcov rcon-cli {command}",
         stdout=__import__('asyncio').subprocess.PIPE,
@@ -18,8 +19,9 @@ async def run_mc_command(command: str):
     return stdout.decode().strip()
 
 class Maintenance(commands.Cog, name="Maintenance"):
+    """Modo mantenimiento del servidor de Minecraft (whitelist on/off)."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.maintenance_mode = False
 
@@ -30,7 +32,8 @@ class Maintenance(commands.Cog, name="Maintenance"):
         app_commands.Choice(name="off", value="off")
     ])
     @app_commands.default_permissions(administrator=True)
-    async def maintenance(self, interaction: discord.Interaction, mode: str):
+    async def maintenance(self, interaction: discord.Interaction, mode: str) -> None:
+        """Activa o desactiva el modo mantenimiento del servidor de Minecraft."""
         await interaction.response.defer(ephemeral=True)
 
         channel = self.bot.get_channel(DISCORD_CHANNEL_ID)
@@ -76,5 +79,5 @@ class Maintenance(commands.Cog, name="Maintenance"):
             await interaction.followup.send("✅ Modo mantenimiento **desactivado**.", ephemeral=True)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Maintenance(bot))
