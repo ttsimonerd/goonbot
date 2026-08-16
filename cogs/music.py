@@ -191,6 +191,46 @@ def _parse_spotify_tracklist(html: str) -> list[tuple[str, str, str]]:
     return tracks
 
 
+_SPOTIFY_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+)
+
+
+def _clean_spotify_url(url: str) -> str:
+    """Strip the query string. Tracking params (``?si=``, ``?dlsi=``, …) make
+    Spotify serve an 'open in app' interstitial instead of the real page."""
+    return urlparse(url)._replace(query="").geturl()
+
+
+def _extract_spotify_track_meta(html: str) -> tuple[str, str]:
+    """Return (title, artist) from a server-rendered Spotify track page."""
+    title_match = _SPOTIFY_OG_TITLE_RE.search(html)
+    if title_match:
+        title = html_mod.unescape(title_match.group(1)).strip()
+        artist = "Unknown artist"
+        desc_match = _SPOTIFY_OG_DESC_RE.search(html)
+        if desc_match:
+            # og:description is "{artists} · {album} · {release type} · {year}".
+            # Unescape first (&#183; → ·) so the split works on either form.
+            desc = html_mod.unescape(desc_match.group(1)).strip()
+            artist = desc.split("·")[0].strip() or artist
+        return title, artist
+
+    # Fallback: <title>Title - song and lyrics by Artist | Spotify</title>
+    t = re.search(r"<title>(.*?)</title>", html, re.DOTALL)
+    if t:
+        full = html_mod.unescape(t.group(1)).strip()
+        m = re.match(
+            r"^(.*?)\s+-\s+(?:song and lyrics by|letra y música de)\s+(.*?)\s*\|\s*Spotify$",
+            full,
+        )
+        if m:
+            return m.group(1).strip(), m.group(2).strip() or "Unknown artist"
+
+    raise RuntimeError("No he podido leer los metadatos de esa canción de Spotify.")
+
+
 def _fetch_spotify(url: str) -> list[tuple[str, str, str]]:
     """Resolve a Spotify URL to a list of (title, artist, canonical_url).
 
@@ -199,11 +239,13 @@ def _fetch_spotify(url: str) -> list[tuple[str, str, str]]:
     ``og:description``, and album/playlist pages render their full track list.
     """
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        # A mobile UA makes Spotify serve the server-rendered ``mobile-web-player``
+        # page (with og: tags and the track list). Desktop UAs get the
+        # client-rendered web player, which has no extractable metadata.
+        "User-Agent": _SPOTIFY_UA,
         "Accept-Language": "en-US,en;q=0.9",
     }
-    resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+    resp = requests.get(_clean_spotify_url(url), headers=headers, timeout=15, allow_redirects=True)
     if resp.status_code >= 400:
         raise RuntimeError(f"Spotify devolvió el estado HTTP {resp.status_code}.")
 
@@ -217,17 +259,7 @@ def _fetch_spotify(url: str) -> list[tuple[str, str, str]]:
         track_id = parts[ti + 1] if ti + 1 < len(parts) else ""
         if not track_id:
             raise RuntimeError("No he podido leer el ID de esa canción de Spotify.")
-        title_match = _SPOTIFY_OG_TITLE_RE.search(resp.text)
-        if not title_match:
-            raise RuntimeError("No he podido leer los metadatos de esa canción de Spotify.")
-        title = html_mod.unescape(title_match.group(1)).strip()
-        artist = "Unknown artist"
-        desc_match = _SPOTIFY_OG_DESC_RE.search(resp.text)
-        if desc_match:
-            # og:description is "{artists} · {album} · {release type} · {year}".
-            # Unescape first (&#183; → ·) so the split works on either form.
-            desc = html_mod.unescape(desc_match.group(1)).strip()
-            artist = desc.split("·")[0].strip() or artist
+        title, artist = _extract_spotify_track_meta(resp.text)
         return [(title, artist, f"https://open.spotify.com/track/{track_id}")]
 
     if entity_type in ("album", "playlist"):
