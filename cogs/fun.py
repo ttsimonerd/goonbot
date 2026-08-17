@@ -10,7 +10,7 @@ class Fun(commands.Cog, name="Fun"):
         self.bot = bot
 
     #___________ROAST______________
-    @app_commands.command(name="roast", description="Insulta a alguien")
+    @app_commands.command(name="roast", description="Insulta a alguien (JK)")
     @app_commands.describe(user="Usuario objetivo (opcional)")
     async def roast(self, interaction: discord.Interaction, user: discord.Member | None = None) -> None:
         """Insulta a un usuario (o al autor)."""
@@ -27,20 +27,22 @@ class Fun(commands.Cog, name="Fun"):
 
         await interaction.response.send_message(f"😂 {target.mention}, {roast}")
 
-    #___________RAPE______________
-    @app_commands.command(name="rape", description="Amenaza a alguien")
+    #___________GRAPE______________
+    @app_commands.command(name="grape", description="Amenaza a alguien (JK)")
     @app_commands.describe(user="Usuario objetivo (opcional)")
-    async def rape(self, interaction: discord.Interaction, user: discord.Member | None = None) -> None:
+    async def grape(self, interaction: discord.Interaction, user: discord.Member | None = None) -> None:
         """Amenaza a un usuario (o al autor)."""
 
-        rapes = [
+        grapes = [
             "Imma Rape You Nih", "Ur gonna get raped", "Vas a rape"
         ]
 
         target = user or interaction.user
-        rape = random.choice(rapes)
+        grape = random.choice(grapes)
 
-        await interaction.response.send_message(f"🥶 {target.mention}, {rape} 💔🎋✌😂")
+        await interaction.response.send_message(
+            f"🥶 {target.mention}, {grape} 💔🎋✌😂\n"
+        )
 
     # ___________RAMPAGE_____________
     @app_commands.command(name="rampage", description="RAMPAGE contra un usuario")

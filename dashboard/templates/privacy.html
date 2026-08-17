@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy — GoonBot{% endblock %}
+{% block content %}
+<div class="card wide legal-page">
+  <h1>Privacy Policy</h1>
+  <p class="muted">Last updated: {{ last_updated }}</p>
+
+  <p>
+    This Privacy Policy explains what information GoonBot collects, how it is
+    used, and the rights you have over it.
+  </p>
+
+  <section>
+    <h2>1. Data Controller</h2>
+    <p>
+      GoonBot is operated by its developer ("we", "us"). For any privacy
+      questions, use the contact details at the bottom of this page.
+    </p>
+  </section>
+
+  <section>
+    <h2>2. Information We Collect</h2>
+    <p>GoonBot collects and stores the following data:</p>
+    <ul>
+      <li>
+        <strong>Discord identity</strong> — your user ID, username, and avatar,
+        obtained when you use the Bot or sign into the Dashboard via Discord
+        OAuth.
+      </li>
+      <li>
+        <strong>Economy data</strong> — your virtual coin balance, daily reward
+        claims and streaks, gambling warnings, and any temporary gambling
+        lockout.
+      </li>
+      <li>
+        <strong>Music data</strong> — songs you add (title, artist, and link),
+        your music ELO score, battle and vote history, and Song of the Day
+        results.
+      </li>
+      <li>
+        <strong>Saved messages</strong> — messages you save with
+        <code>/message_add</code>.
+      </li>
+      <li>
+        <strong>Dashboard messages</strong> — messages you send through the
+        Dashboard, stored in a log visible to the server administrator.
+      </li>
+      <li>
+        <strong>Suggestions</strong> — suggestions you submit with
+        <code>/suggest</code>, posted to the configured suggestions channel.
+      </li>
+      <li>
+        <strong>Message content in the music channel</strong> — GoonBot reads
+        messages posted in the configured music channel solely to detect music
+        links and add them to the sender's collection. It does not store the
+        message itself, only the resulting song metadata.
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>3. How We Use Your Information</h2>
+    <p>We use your information to:</p>
+    <ul>
+      <li>Provide the Bot's features (games, economy, music, and the Dashboard);</li>
+      <li>Enforce moderation (gambling warnings and lockouts);</li>
+      <li>Verify that Dashboard users are members of the server;</li>
+      <li>Operate and improve the Bot.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>4. Legal Basis</h2>
+    <p>
+      We process this data on the basis of our legitimate interest in operating
+      the Bot and providing its features and, where required by law, your
+      consent.
+    </p>
+  </section>
+
+  <section>
+    <h2>5. Storage &amp; Retention</h2>
+    <p>
+      Data is stored in a database on the server that hosts GoonBot. It is
+      retained for as long as you use the Bot and may be kept for moderation or
+      operational purposes. If you leave the server, your Dashboard access is
+      revoked automatically, though some historical records (such as message
+      logs or music battle history) may be retained.
+    </p>
+  </section>
+
+  <section>
+    <h2>6. Sharing &amp; Third Parties</h2>
+    <p>We do not sell your personal information. Your data is shared only:</p>
+    <ul>
+      <li>With Discord, as necessary for the Bot and Dashboard login to function;</li>
+      <li>
+        With music platforms (for example YouTube or Spotify) when the Bot
+        retrieves song metadata for a link you provide.
+      </li>
+    </ul>
+    <p>We do not share data with advertisers or data brokers.</p>
+  </section>
+
+  <section>
+    <h2>7. Message Content Intent</h2>
+    <p>
+      GoonBot enables Discord's "Message Content" privileged intent, which
+      allows it to read the text of messages. This is used <strong>only</strong>
+      in the channel configured as the music channel, to detect shared music
+      links. It does not mean we read or log your conversations in other
+      channels.
+    </p>
+  </section>
+
+  <section>
+    <h2>8. Cookies</h2>
+    <p>
+      The Dashboard uses a session cookie to keep you signed in. It is removed
+      when you log out or close your browser.
+    </p>
+  </section>
+
+  <section>
+    <h2>9. Your Rights</h2>
+    <p>
+      Depending on your jurisdiction, you may have the right to access, correct,
+      or delete your personal data. To exercise these rights, contact us using
+      the details below. You can also revoke the Bot's access or remove it from
+      your Discord account at any time.
+    </p>
+  </section>
+
+  <section>
+    <h2>10. Children's Privacy</h2>
+    <p>
+      GoonBot is not directed at children. If you believe a child has provided
+      personal data through the Bot, contact us and we will delete it.
+    </p>
+  </section>
+
+  <section>
+    <h2>11. Contact</h2>
+    <p>For any questions about this Privacy Policy, contact:</p>
+    <ul>
+      <li>GitHub: <a href="https://github.com/ttsimonerd">ttsimonerd</a></li>
+      <li>Discord: @_el_navajas_</li>
+      <li>Email: <a href="mailto:xyzvv9@gmail.com">xyzvv9@gmail.com</a></li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

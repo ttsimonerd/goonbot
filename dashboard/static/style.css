@@ -209,3 +209,29 @@ code {
 @media (max-width: 720px) {
   .dashboard-grid { grid-template-columns: 1fr; }
 }
+
+.legal-footer {
+  text-align: center;
+  padding: 2rem 1rem 2.5rem;
+  margin-top: 2rem;
+}
+.legal-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.72rem;
+  opacity: 0.45;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.legal-link:hover { opacity: 0.85; color: var(--text); }
+.legal-sep {
+  color: var(--muted);
+  opacity: 0.3;
+  margin: 0 0.5rem;
+  font-size: 0.72rem;
+}
+
+.legal-page h1 { margin-bottom: 0.25rem; }
+.legal-page h2 { margin-top: 1.75rem; font-size: 1.1rem; }
+.legal-page p, .legal-page li { font-size: 0.95rem; line-height: 1.6; }
+.legal-page ul { padding-left: 1.25rem; }
+.legal-page a { color: var(--blurple); }

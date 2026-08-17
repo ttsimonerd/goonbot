@@ -256,7 +256,7 @@ async def help_command(interaction: discord.Interaction):
         name="😂 Diversión",
         value=(
             "`/roast [@usuario]` — Insulta a alguien\n"
-            "`/rape [@usuario]` — Amenaza a alguien\n"
+            "`/grape [@usuario]` — Amenaza a alguien\n"
             "`/rampage @usuario` — Rampage contra un usuario"
         ),
         inline=False
