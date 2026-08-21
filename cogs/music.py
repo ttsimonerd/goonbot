@@ -129,6 +129,40 @@ def _platform_label(platform: str) -> str:
     return PLATFORM_LABELS.get((platform or "").lower(), (platform or "Desconocida").title())
 
 
+# ==================================================================
+# Este es el texto que el maldito GoonBot envia a los gitanos por DM
+# ==================================================================
+def _dm_song_added_embed(added: list[dict]) -> discord.Embed:
+    """Build the DM confirmation sent when songs are auto-added from chat.
+
+    The ``added`` list contains one or more song dicts with keys
+    ``title``, ``artist``, ``platform``.
+    """
+    if len(added) == 1:
+        song = added[0]
+        embed = discord.Embed(
+            title="🎵 Canción añadida a tu colección",
+            description=f"**{song['title']}**\n{song['artist']}",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="Plataforma", value=_platform_label(song["platform"]))
+        embed.set_footer(text="Ya lo tienes en tu colección my nigga, ahora puedes usar el comando '/music list' para ver tu colección de canciones.")
+    else:
+        embed = discord.Embed(
+            title=f"🎵 {len(added)} canciones añadidas a tu colección",
+            color=discord.Color.green(),
+        )
+        lines = [
+            f"**{s['title']}** — {s['artist']} · {_platform_label(s['platform'])}"
+            for s in added[:15]
+        ]
+        embed.description = "\n".join(lines)
+        if len(added) > 15:
+            embed.description += f"\n*…y {len(added) - 15} más.*"
+        embed.set_footer(text="Ya lo tienes en tu colección my nigga, ahora puedes usar el comando '/music list' para ver tu colección de canciones.")
+    return embed
+
+
 def _find_music_urls(text: str) -> list[str]:
     """Extract unique music-platform URLs from a message's raw text."""
     urls: list[str] = []
@@ -556,7 +590,12 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
                         embed.description += f"\n*…y {len(added) - 10} más.*"
                 embed.add_field(name="Propietario", value=message.author.mention)
                 embed.set_footer(text="Añadida desde un enlace compartido")
-                await message.channel.send(embed=embed)
+                await message.channel.send(embed=embed, delete_after=15)
+                # Send a persistent DM confirmation so the user has a record.
+                try:
+                    await message.author.send(embed=_dm_song_added_embed(added))
+                except discord.Forbidden:
+                    pass
             elif result["status"] == "duplicate":
                 first = result["duplicates"][0]
                 if len(result["duplicates"]) == 1:
@@ -1130,9 +1169,9 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
     @app_commands.describe(member="Miembro cuya colección quieres ver (opcional)")
     async def list_songs(self, interaction: discord.Interaction, member: discord.Member | None = None) -> None:
         """Muestra la colección de canciones de un miembro, ordenada por ELO."""
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         if interaction.guild_id is None:
-            await interaction.followup.send("Solo disponible en servidores.")
+            await interaction.followup.send("Solo disponible en servidores.", ephemeral=True)
             return
 
         target = member or interaction.user
@@ -1140,6 +1179,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         if not songs:
             await interaction.followup.send(
                 f"**{target.display_name}** no tiene canciones adjudicadas todavía.",
+                ephemeral=True,
             )
             return
 
@@ -1153,7 +1193,7 @@ class Music(commands.GroupCog, group_name="music", description="Colección de ca
         ]
         embed.description = "\n".join(lines[:25])
         embed.set_footer(text=f"{len(songs)} canciones" + (" · mostrando las 25 mejores" if len(songs) > 25 else ""))
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(name="history", description="Muestra el historial de batallas musicales.")
     async def history(self, interaction: discord.Interaction) -> None:
