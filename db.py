@@ -263,6 +263,7 @@ CREATE TABLE IF NOT EXISTS rng_users (
     equipped_aura_id INTEGER,
     last_drop_tier TEXT,
     last_roll_at TEXT,
+    combo INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     PRIMARY KEY (guild_id, discord_id),
     FOREIGN KEY (equipped_aura_id) REFERENCES rng_item_registry(item_id)
@@ -317,6 +318,24 @@ CREATE TABLE IF NOT EXISTS rng_last_use (
     use_type TEXT NOT NULL,
     last_used_at TEXT NOT NULL,
     PRIMARY KEY (guild_id, user_id, use_type)
+);
+
+CREATE TABLE IF NOT EXISTS rng_daily (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    last_claim_date TEXT NOT NULL,
+    streak INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS rng_missions (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    mission_id TEXT NOT NULL,
+    progress INTEGER NOT NULL DEFAULT 0,
+    claimed INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id, date, mission_id)
 );
 """
 
@@ -420,6 +439,15 @@ async def _migrate() -> None:
     if "daily_streak" not in columns:
         await _connection.execute(
             "ALTER TABLE economy ADD COLUMN daily_streak INTEGER NOT NULL DEFAULT 0"
+        )
+
+    cursor = await _connection.execute("PRAGMA table_info(rng_users)")
+    rows = await cursor.fetchall()
+    columns = {row[1] for row in rows}
+
+    if "combo" not in columns:
+        await _connection.execute(
+            "ALTER TABLE rng_users ADD COLUMN combo INTEGER NOT NULL DEFAULT 0"
         )
 
     cursor = await _connection.execute("PRAGMA table_info(allowed_channels)")
@@ -1353,7 +1381,7 @@ async def rng_get_user(guild_id: int, user_id: int) -> dict[str, Any]:
     db = _conn()
     cursor = await db.execute(
         "SELECT total_rolls, pity_counter, currency_balance, equipped_aura_id, "
-        "last_drop_tier, last_roll_at, created_at "
+        "last_drop_tier, last_roll_at, combo, created_at "
         "FROM rng_users WHERE guild_id = ? AND discord_id = ?",
         (str(guild_id), str(user_id)),
     )
@@ -1374,6 +1402,7 @@ async def rng_get_user(guild_id: int, user_id: int) -> dict[str, Any]:
             "equipped_aura_id": None,
             "last_drop_tier": None,
             "last_roll_at": None,
+            "combo": 0,
             "created_at": None,
         }
 
@@ -1384,7 +1413,8 @@ async def rng_get_user(guild_id: int, user_id: int) -> dict[str, Any]:
         "equipped_aura_id": int(row[3]) if row[3] else None,
         "last_drop_tier": row[4],
         "last_roll_at": row[5],
-        "created_at": row[6],
+        "combo": row[6],
+        "created_at": row[7],
     }
 
 
@@ -1733,3 +1763,289 @@ async def rng_mark_use(guild_id: int, user_id: int, use_type: str) -> None:
             (str(guild_id), str(user_id), use_type, today),
         )
         await db.commit()
+
+
+async def rng_claim_daily(
+    guild_id: int,
+    user_id: int,
+    today: str,
+    yesterday: str,
+    base: int,
+    streak_bonus: int,
+    cap: int,
+) -> dict[str, Any]:
+    """Claim the RNG daily login reward (streak-aware, atomic).
+
+    Returns {"claimed": bool, "reward": int, "streak": int, "balance": int}.
+    """
+    db = _conn()
+    await rng_get_user(guild_id, user_id)
+    async with _write_lock:
+        cursor = await db.execute(
+            "SELECT last_claim_date, streak FROM rng_daily "
+            "WHERE guild_id = ? AND user_id = ?",
+            (str(guild_id), str(user_id)),
+        )
+        row = await cursor.fetchone()
+
+        if row is not None and row[0] == today:
+            cursor = await db.execute(
+                "SELECT currency_balance FROM rng_users "
+                "WHERE guild_id = ? AND discord_id = ?",
+                (str(guild_id), str(user_id)),
+            )
+            balance = (await cursor.fetchone())[0]
+            return {"claimed": False, "reward": 0, "streak": row[1], "balance": balance}
+
+        if row is not None and row[0] == yesterday:
+            streak = row[1] + 1
+        else:
+            streak = 1
+        reward = min(cap, base + streak_bonus * (streak - 1))
+
+        await db.execute(
+            "INSERT INTO rng_daily (guild_id, user_id, last_claim_date, streak) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id) DO UPDATE SET "
+            "last_claim_date = excluded.last_claim_date, "
+            "streak = excluded.streak",
+            (str(guild_id), str(user_id), today, streak),
+        )
+        await db.execute(
+            "UPDATE rng_users SET currency_balance = currency_balance + ? "
+            "WHERE guild_id = ? AND discord_id = ?",
+            (reward, str(guild_id), str(user_id)),
+        )
+        cursor = await db.execute(
+            "SELECT currency_balance FROM rng_users "
+            "WHERE guild_id = ? AND discord_id = ?",
+            (str(guild_id), str(user_id)),
+        )
+        balance = (await cursor.fetchone())[0]
+        await db.commit()
+        return {"claimed": True, "reward": reward, "streak": streak, "balance": balance}
+
+
+async def rng_get_daily(guild_id: int, user_id: int) -> dict[str, Any]:
+    """Current daily claim state (last_claim_date + streak)."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT last_claim_date, streak FROM rng_daily "
+        "WHERE guild_id = ? AND user_id = ?",
+        (str(guild_id), str(user_id)),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return {"last_claim_date": None, "streak": 0}
+    return {"last_claim_date": row[0], "streak": row[1]}
+
+
+async def rng_get_missions(guild_id: int, user_id: int, date: str) -> list[dict[str, Any]]:
+    """Existing mission progress rows for a user on a date."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT mission_id, progress, claimed FROM rng_missions "
+        "WHERE guild_id = ? AND user_id = ? AND date = ? "
+        "ORDER BY mission_id",
+        (str(guild_id), str(user_id), date),
+    )
+    rows = await cursor.fetchall()
+    return [
+        {"mission_id": r[0], "progress": r[1], "claimed": bool(r[2])}
+        for r in rows
+    ]
+
+
+async def rng_mission_progress(
+    guild_id: int,
+    user_id: int,
+    date: str,
+    mission_id: str,
+    amount: int = 1,
+) -> None:
+    """Increment a mission's progress (no-op if the mission isn't assigned)."""
+    db = _conn()
+    async with _write_lock:
+        await db.execute(
+            "INSERT OR IGNORE INTO rng_missions "
+            "(guild_id, user_id, date, mission_id, progress, claimed) "
+            "VALUES (?, ?, ?, ?, 0, 0)",
+            (str(guild_id), str(user_id), date, mission_id),
+        )
+        await db.execute(
+            "UPDATE rng_missions SET progress = progress + ? "
+            "WHERE guild_id = ? AND user_id = ? AND date = ? "
+            "AND mission_id = ? AND claimed = 0",
+            (amount, str(guild_id), str(user_id), date, mission_id),
+        )
+        await db.commit()
+
+
+async def rng_claim_mission(
+    guild_id: int,
+    user_id: int,
+    date: str,
+    mission_id: str,
+    required: int,
+    reward: int,
+) -> int | None:
+    """Claim a completed mission. Returns the reward, or None if not claimable."""
+    db = _conn()
+    await rng_get_user(guild_id, user_id)
+    async with _write_lock:
+        cursor = await db.execute(
+            "SELECT progress, claimed FROM rng_missions "
+            "WHERE guild_id = ? AND user_id = ? AND date = ? AND mission_id = ?",
+            (str(guild_id), str(user_id), date, mission_id),
+        )
+        row = await cursor.fetchone()
+        if row is None or row[1] or row[0] < required:
+            return None
+        await db.execute(
+            "UPDATE rng_missions SET claimed = 1 "
+            "WHERE guild_id = ? AND user_id = ? AND date = ? AND mission_id = ?",
+            (str(guild_id), str(user_id), date, mission_id),
+        )
+        await db.execute(
+            "UPDATE rng_users SET currency_balance = currency_balance + ? "
+            "WHERE guild_id = ? AND discord_id = ?",
+            (reward, str(guild_id), str(user_id)),
+        )
+        await db.commit()
+        return reward
+
+
+async def rng_craft(
+    guild_id: int,
+    user_id: int,
+    materials: list[tuple[int, int]],
+    product_id: int,
+) -> tuple[bool, str]:
+    """Atomic craft: check materials, consume them, add the product.
+
+    materials is a list of (item_id, quantity). Returns (ok, message).
+    """
+    db = _conn()
+    await rng_get_user(guild_id, user_id)
+    async with _write_lock:
+        for item_id, qty in materials:
+            cursor = await db.execute(
+                "SELECT quantity FROM rng_user_inventories "
+                "WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (str(guild_id), str(user_id), item_id),
+            )
+            row = await cursor.fetchone()
+            if row is None or row[0] < qty:
+                return False, "missing"
+        for item_id, qty in materials:
+            cursor = await db.execute(
+                "SELECT quantity FROM rng_user_inventories "
+                "WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (str(guild_id), str(user_id), item_id),
+            )
+            row = await cursor.fetchone()
+            new_qty = row[0] - qty
+            if new_qty <= 0:
+                await db.execute(
+                    "DELETE FROM rng_user_inventories "
+                    "WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                    (str(guild_id), str(user_id), item_id),
+                )
+            else:
+                await db.execute(
+                    "UPDATE rng_user_inventories SET quantity = ? "
+                    "WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                    (new_qty, str(guild_id), str(user_id), item_id),
+                )
+        await db.execute(
+            "INSERT INTO rng_user_inventories "
+            "(guild_id, user_id, item_id, quantity, is_equipped) "
+            "VALUES (?, ?, ?, 1, 0) "
+            "ON CONFLICT(guild_id, user_id, item_id) DO UPDATE SET "
+            "quantity = quantity + excluded.quantity",
+            (str(guild_id), str(user_id), product_id),
+        )
+        await db.commit()
+        return True, "ok"
+
+
+async def rng_sell_duplicates(guild_id: int, user_id: int) -> tuple[int, int]:
+    """Sell every extra copy (keep 1 of each item). Returns (items_sold, tokens)."""
+    db = _conn()
+    async with _write_lock:
+        cursor = await db.execute(
+            "SELECT inv.item_id, i.sell_value, inv.quantity FROM rng_user_inventories inv "
+            "JOIN rng_item_registry i ON i.item_id = inv.item_id "
+            "WHERE inv.guild_id = ? AND inv.user_id = ? AND inv.quantity > 1",
+            (str(guild_id), str(user_id)),
+        )
+        rows = await cursor.fetchall()
+        total_items = 0
+        total_tokens = 0
+        for item_id, sell_value, qty in rows:
+            sell = qty - 1
+            total_items += sell
+            total_tokens += sell_value * sell
+            await db.execute(
+                "UPDATE rng_user_inventories SET quantity = 1 "
+                "WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (str(guild_id), str(user_id), item_id),
+            )
+        if total_tokens > 0:
+            await db.execute(
+                "UPDATE rng_users SET currency_balance = currency_balance + ? "
+                "WHERE guild_id = ? AND discord_id = ?",
+                (total_tokens, str(guild_id), str(user_id)),
+            )
+        await db.commit()
+        return total_items, total_tokens
+
+
+async def rng_owned_item_ids(guild_id: int, user_id: int) -> set[int]:
+    """Distinct item ids the user owns (quantity > 0)."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT DISTINCT item_id FROM rng_user_inventories "
+        "WHERE guild_id = ? AND user_id = ? AND quantity > 0",
+        (str(guild_id), str(user_id)),
+    )
+    rows = await cursor.fetchall()
+    return {int(r[0]) for r in rows}
+
+
+async def rng_leaderboard(
+    guild_id: int,
+    category: str,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Top users by category: 'tokens', 'rolls' or 'collection'."""
+    db = _conn()
+    if category == "tokens":
+        cursor = await db.execute(
+            "SELECT discord_id, currency_balance FROM rng_users "
+            "WHERE guild_id = ? ORDER BY currency_balance DESC, total_rolls ASC LIMIT ?",
+            (str(guild_id), limit),
+        )
+        rows = await cursor.fetchall()
+        return [{"user_id": int(r[0]), "value": r[1]} for r in rows]
+    if category == "rolls":
+        cursor = await db.execute(
+            "SELECT discord_id, total_rolls FROM rng_users "
+            "WHERE guild_id = ? ORDER BY total_rolls DESC, currency_balance DESC LIMIT ?",
+            (str(guild_id), limit),
+        )
+        rows = await cursor.fetchall()
+        return [{"user_id": int(r[0]), "value": r[1]} for r in rows]
+    if category == "collection":
+        cursor = await db.execute(
+            "SELECT u.discord_id, COUNT(DISTINCT inv.item_id) AS owned "
+            "FROM rng_users u "
+            "LEFT JOIN rng_user_inventories inv "
+            "ON inv.guild_id = u.guild_id AND inv.user_id = u.discord_id AND inv.quantity > 0 "
+            "WHERE u.guild_id = ? "
+            "GROUP BY u.discord_id ORDER BY owned DESC, u.total_rolls ASC LIMIT ?",
+            (str(guild_id), limit),
+        )
+        rows = await cursor.fetchall()
+        return [{"user_id": int(r[0]), "value": r[1]} for r in rows]
+    return []

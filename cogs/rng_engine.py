@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import hashlib
 import logging
 import random
 
@@ -25,10 +26,17 @@ from config import (
     GOONBOT_TOKEN_EMOJI,
     RNG_AUTO_COOLDOWN,
     RNG_AUTO_DURATION,
+    RNG_COMBO_CAP,
+    RNG_COMBO_STEP,
+    RNG_COMBO_WINDOW,
     RNG_EVENTS_SCHEDULE,
     RNG_MANUAL_COOLDOWN,
+    RNG_MISSIONS,
+    RNG_MISSIONS_PER_DAY,
+    RNG_MULTIROLL_COUNT,
     RNG_PITY_THRESHOLD,
     RNG_ROLE_TIERS,
+    RNG_SESSION_WINDOW,
     RNG_TIERS,
     RNG_TOKENS_MAX,
     RNG_TOKENS_MIN,
@@ -81,6 +89,28 @@ def _luck_bar(pity: int, threshold: int = RNG_PITY_THRESHOLD) -> str:
     return "▓" * filled + "░" * (10 - filled)
 
 
+def _cooldown_embed(user: discord.User, remaining: float) -> discord.Embed:
+    """Embed del cooldown manual, con el botón de volver a tirar."""
+    embed = discord.Embed(
+        title="⏳ Cooldown",
+        description=f"Espera **{remaining:.0f}s** para volver a tirar.",
+        color=discord.Color.dark_gray(),
+    )
+    embed.set_footer(text=user.display_name)
+    return embed
+
+
+def _session_footer(user: discord.User, result: dict) -> str:
+    """Footer line: roll count plus the current session stats."""
+    text = f"{user.display_name} · Roll #{result['total_rolls']}"
+    session = result.get("session")
+    if session:
+        text += f" · Sesión: {session['rolls']} rolls, {GOONBOT_TOKEN_EMOJI}+{session['tokens']}"
+        if session["best"]:
+            text += f", mejor {session['best']}"
+    return text
+
+
 def _roll_embed(user: discord.User, result: dict) -> discord.Embed:
     """Embed shown after a roll (manual, auto unlock, or Re-Goon)."""
     item = result["item"]
@@ -96,7 +126,12 @@ def _roll_embed(user: discord.User, result: dict) -> discord.Embed:
     tokens = f"{GOONBOT_TOKEN_EMOJI} **+{result['tokens_earned']}**"
     if result["extra_tokens"]:
         tokens += f" (+{result['extra_tokens']} duplicado)"
+    if result.get("combo", 1) > 1:
+        tokens += f" · 🔥 x{result['combo_mult']:.2f}"
     embed.add_field(name="Tokens", value=tokens, inline=True)
+
+    if result.get("combo", 1) > 1:
+        embed.add_field(name="Combo", value=f"🔥 {result['combo']}", inline=True)
 
     embed.add_field(
         name="Pity",
@@ -116,8 +151,86 @@ def _roll_embed(user: discord.User, result: dict) -> discord.Embed:
             value=f"¡Drop garantizado: **{result['tier']}**!",
             inline=False,
         )
-    embed.set_footer(text=f"{user.display_name} · Roll #{result['total_rolls']}")
+    embed.set_footer(text=_session_footer(user, result))
     return embed
+
+
+def _multi_roll_embed(user: discord.User, results: list[dict]) -> discord.Embed:
+    """Embed for a ×10 multi-roll: every result + totals."""
+    best = max(results, key=lambda r: tier_index(r["tier"]))
+    lines = []
+    unlocks = 0
+    tokens = 0
+    for i, r in enumerate(results, 1):
+        tokens += r["tokens_earned"] + r["extra_tokens"]
+        if r["is_new"]:
+            unlocks += 1
+        marker = "✨" if r["is_new"] else "🔁"
+        lines.append(f"`#{i}` {marker} {r['item']['icon_emoji']} **{r['item']['name']}** — {r['tier']}")
+
+    embed = discord.Embed(
+        title=f"🎲 ×{len(results)} rolls de {user.display_name}",
+        color=tier_color(best["tier"]),
+    )
+    embed.add_field(name="Resultados", value="\n".join(lines), inline=False)
+    embed.add_field(
+        name="Tokens",
+        value=f"{GOONBOT_TOKEN_EMOJI} **+{tokens}**",
+        inline=True,
+    )
+    embed.add_field(name="✨ Nuevos", value=str(unlocks), inline=True)
+    last = results[-1]
+    if last.get("combo", 1) > 1:
+        embed.add_field(name="Combo", value=f"🔥 {last['combo']}", inline=True)
+    embed.add_field(
+        name="Pity",
+        value=f"`{_luck_bar(last['pity'])}` {last['pity']}/{RNG_PITY_THRESHOLD}",
+        inline=False,
+    )
+    embed.set_footer(text=_session_footer(user, last))
+    return embed
+
+
+class RollAgainView(discord.ui.View):
+    """Botón "Roll de nuevo" que acompaña a los resultados de /roll.
+
+    Permite volver a tirar sin invocar el comando otra vez. El mismo botón
+    aparece en el mensaje de cooldown: al pulsarlo se re-comprueba el cooldown
+    y, si ya pasó, se tira; si no, se actualiza el tiempo restante.
+    """
+
+    def __init__(self, cog: "Rng", guild_id: int, user_id: int) -> None:
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.message: discord.Message | None = None
+
+    @discord.ui.button(label="🎲 Roll de nuevo", style=discord.ButtonStyle.primary)
+    async def roll_again(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ Este roll no es tuyo.", ephemeral=True)
+            return
+        await self.cog._handle_roll_again(interaction, self.guild_id, self.user_id, count=1)
+
+    @discord.ui.button(label="🎲 ×10", style=discord.ButtonStyle.secondary)
+    async def roll_multi(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ Este roll no es tuyo.", ephemeral=True)
+            return
+        await self.cog._handle_roll_again(
+            interaction,
+            self.guild_id,
+            self.user_id,
+            count=RNG_MULTIROLL_COUNT,
+        )
+
+    async def on_timeout(self) -> None:
+        if self.message is not None:
+            try:
+                await self.message.edit(view=None)
+            except discord.HTTPException:
+                pass
 
 
 def _auto_summary_embed(user: discord.User, stats: dict, completed: bool) -> discord.Embed:
@@ -154,6 +267,36 @@ class Rng(commands.Cog, name="Rng"):
         self.bot = bot
         # (guild_id, user_id) -> asyncio.Task of the running auto-roll loop.
         self._auto: dict[tuple[int, int], asyncio.Task] = {}
+        # (guild_id, user_id) -> in-memory session stats (rolls within the
+        # idle window count as one session).
+        self._sessions: dict[tuple[int, int], dict] = {}
+
+    # ------------------------------------------------------------------
+    # Daily missions (deterministic per user per day)
+    # ------------------------------------------------------------------
+
+    def _assigned_missions(self, guild_id: int, user_id: int) -> list[str]:
+        """The mission ids assigned to this user today (deterministic)."""
+        today = datetime.date.today().isoformat()
+        seed = int(hashlib.sha256(f"{today}|{guild_id}|{user_id}".encode()).hexdigest(), 16)
+        return [m["id"] for m in random.Random(seed).sample(RNG_MISSIONS, RNG_MISSIONS_PER_DAY)]
+
+    async def _bump_mission(
+        self,
+        guild_id: int,
+        user_id: int,
+        mission_id: str,
+        amount: int = 1,
+    ) -> None:
+        """Increment a mission's progress if it's assigned today."""
+        if mission_id in self._assigned_missions(guild_id, user_id):
+            await db.rng_mission_progress(
+                guild_id,
+                user_id,
+                datetime.date.today().isoformat(),
+                mission_id,
+                amount,
+            )
 
     async def cog_load(self) -> None:
         """Arranca el bucle de eventos globales al cargar el cog."""
@@ -299,8 +442,29 @@ class Rng(commands.Cog, name="Rng"):
             extra_tokens = item["sell_value"]
             await db.rng_add_tokens(guild_id, user_id, extra_tokens)
 
-        tokens_earned = random.randint(RNG_TOKENS_MIN, RNG_TOKENS_MAX)
+        # Roll streak combo: rolls within the window build the combo, which
+        # multiplies the tokens earned (capped). Idling resets it to 1.
+        now = datetime.datetime.utcnow()
+        combo = 1
+        if user["last_roll_at"]:
+            last_dt = datetime.datetime.fromisoformat(user["last_roll_at"])
+            if (now - last_dt).total_seconds() <= RNG_COMBO_WINDOW:
+                combo = user["combo"] + 1
+        combo_mult = min(RNG_COMBO_CAP, 1.0 + RNG_COMBO_STEP * combo)
+        tokens_earned = max(1, int(round(random.randint(RNG_TOKENS_MIN, RNG_TOKENS_MAX) * combo_mult)))
         await db.rng_add_tokens(guild_id, user_id, tokens_earned)
+
+        # Session stats (in-memory; a session is rolls within the idle window).
+        key = (guild_id, user_id)
+        session = self._sessions.get(key)
+        if session is None or (now - session["ts"]).total_seconds() > RNG_SESSION_WINDOW:
+            session = {"ts": now, "rolls": 0, "tokens": 0, "best": None}
+        session["ts"] = now
+        session["rolls"] += 1
+        session["tokens"] += tokens_earned + extra_tokens
+        if session["best"] is None or tier_index(tier) > tier_index(session["best"]):
+            session["best"] = tier
+        self._sessions[key] = session
 
         # Pity accounting.
         new_pity = pity
@@ -322,8 +486,15 @@ class Rng(commands.Cog, name="Rng"):
             pity_counter=new_pity,
             last_drop_tier=tier,
             last_roll_at=now_iso(),
+            combo=combo,
         )
         await db.rng_tick_roll_buffs(guild_id, user_id)
+
+        # Daily mission progress hooks (only assigned missions are bumped).
+        await self._bump_mission(guild_id, user_id, "roll_10")
+        await self._bump_mission(guild_id, user_id, "roll_50")
+        if tier_index(tier) >= 3:
+            await self._bump_mission(guild_id, user_id, "drop_gitano")
 
         return {
             "item": item,
@@ -336,6 +507,9 @@ class Rng(commands.Cog, name="Rng"):
             "sources": sources,
             "guaranteed": guaranteed,
             "total_rolls": total_rolls,
+            "combo": combo,
+            "combo_mult": combo_mult,
+            "session": {k: v for k, v in session.items() if k != "ts"},
         }
 
     async def _handle_rare_drop(self, guild: discord.Guild, user_id: int, result: dict) -> None:
@@ -431,6 +605,66 @@ class Rng(commands.Cog, name="Rng"):
     # Commands: /roll
     # ------------------------------------------------------------------
 
+    def _roll_view(self, guild_id: int, user_id: int) -> RollAgainView:
+        """Nueva vista con el botón de volver a tirar."""
+        return RollAgainView(self, guild_id, user_id)
+
+    async def _handle_roll_again(
+        self,
+        interaction: discord.Interaction,
+        guild_id: int,
+        user_id: int,
+        count: int = 1,
+    ) -> None:
+        """Lógica compartida de los botones del roll (1 o ×10).
+
+        Re-comprueba auto-roll y cooldown sobre el mismo mensaje: si aún hay
+        cooldown edita el embed con el tiempo restante; si no, tira (1 o ×10)
+        y muestra el resultado (los botones se mantienen para seguir).
+        """
+        if interaction.guild is None:
+            await interaction.response.send_message("❌ Solo funciona dentro de un servidor.", ephemeral=True)
+            return
+
+        if self.is_auto_active(guild_id, user_id):
+            embed = discord.Embed(
+                description="⏳ Estás en auto-roll. Detenlo desde `/inventory` para tirar manualmente.",
+                color=discord.Color.dark_gray(),
+            )
+            await interaction.response.edit_message(embed=embed, view=self._roll_view(guild_id, user_id))
+            return
+
+        user = await db.rng_get_user(guild_id, user_id)
+        remaining = 0.0
+        if user["last_roll_at"]:
+            last = datetime.datetime.fromisoformat(user["last_roll_at"])
+            remaining = max(0.0, RNG_MANUAL_COOLDOWN - (datetime.datetime.utcnow() - last).total_seconds())
+        if remaining > 0:
+            embed = self._cooldown_embed(interaction.user, remaining)
+            await interaction.response.edit_message(embed=embed, view=self._roll_view(guild_id, user_id))
+            return
+
+        if count <= 1:
+            result = await self._perform_roll(guild_id, user_id)
+            await interaction.response.edit_message(
+                embed=_roll_embed(interaction.user, result),
+                view=self._roll_view(guild_id, user_id),
+            )
+            await self._handle_rare_drop(interaction.guild, user_id, result)
+            return
+
+        # Multi-roll: run N rolls, show them all in one embed.
+        results = []
+        for _ in range(count):
+            result = await self._perform_roll(guild_id, user_id)
+            results.append(result)
+            await self._handle_rare_drop(interaction.guild, user_id, result)
+        await interaction.response.edit_message(
+            embed=_multi_roll_embed(interaction.user, results),
+            view=self._roll_view(guild_id, user_id),
+        )
+        await self._bump_mission(guild_id, user_id, "multiroll_2")
+
     @app_commands.command(name="roll", description="Tira el gacha GoonBot (15s de enfriamiento)")
     async def roll(self, interaction: discord.Interaction) -> None:
         """Manual roll. Blocked while an auto-roll session is active."""
@@ -450,15 +684,24 @@ class Rng(commands.Cog, name="Rng"):
             last = datetime.datetime.fromisoformat(user["last_roll_at"])
             remaining = max(0.0, RNG_MANUAL_COOLDOWN - (datetime.datetime.utcnow() - last).total_seconds())
         if remaining > 0:
-            await interaction.response.send_message(
-                f"⏳ Espera **{remaining:.0f}s** para volver a tirar.",
-                ephemeral=True,
-            )
+            embed = self._cooldown_embed(interaction.user, remaining)
+            view = self._roll_view(interaction.guild_id, interaction.user.id)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            try:
+                view.message = await interaction.original_response()
+            except discord.HTTPException:
+                pass
             return
 
         await interaction.response.defer()
         result = await self._perform_roll(interaction.guild_id, interaction.user.id)
-        await interaction.followup.send(embed=_roll_embed(interaction.user, result))
+        view = self._roll_view(interaction.guild_id, interaction.user.id)
+        message = await interaction.followup.send(
+            embed=_roll_embed(interaction.user, result),
+            view=view,
+            wait=True,
+        )
+        view.message = message
         await self._handle_rare_drop(interaction.guild, interaction.user.id, result)
 
     # ------------------------------------------------------------------
@@ -578,6 +821,12 @@ class Rng(commands.Cog, name="Rng"):
             return
 
         await db.rng_add_item(interaction.guild_id, interaction.user.id, shop_item["item_id"], 1)
+        await self._bump_mission(
+            interaction.guild_id,
+            interaction.user.id,
+            "spend_250",
+            amount=shop_item["shop_price"],
+        )
         await interaction.response.send_message(
             f"✅ Compraste **{shop_item['icon_emoji']} {shop_item['name']}** por {shop_item['shop_price']} {GOONBOT_TOKEN_EMOJI}."
             " Está en tu inventario (`/inventory`).",

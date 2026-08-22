@@ -62,7 +62,8 @@ class GoonBot(commands.Bot):
             "cogs.suggestions",
             "cogs.rng_engine",
             "cogs.inventory_ui",
-            "cogs.roles"
+            "cogs.roles",
+            "cogs.gacha_ui"
         ]
 
         for ext in extensions:
@@ -322,6 +323,11 @@ async def help_command(interaction: discord.Interaction):
             "`/shop` — Tienda de GoonBot Tokens\n"
             "`/shop buy <objeto>` — Compra objetos\n"
             "`/inventory` — Tu inventario (equipar, usar, vender)\n"
+            "`/gacha daily` — Recompensa diaria con racha\n"
+            "`/gacha missions` — Misiones diarias\n"
+            "`/gacha collection` — Tu colección\n"
+            "`/gacha craft` — Crafteo de objetos\n"
+            "`/gacha top` — Top del servidor\n"
             "`/rng event` — *(Admin)* Eventos globales de suerte"
         ),
         inline=False

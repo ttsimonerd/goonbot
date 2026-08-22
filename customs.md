@@ -43,10 +43,17 @@ Set these in your hosting panel / `docker-compose` env — **no code edit needed
 | `36` | `RNG_AUTO_DURATION` | How long one Auto-Goon lasts (600 s = 10 min) |
 | `39` | `RNG_PITY_THRESHOLD` | Pity points needed for a guaranteed tier-up (100) |
 | `42–43` | `RNG_TOKENS_MIN` / `RNG_TOKENS_MAX` | Tokens earned per roll (random 1–10) |
-| `47–57` | `RNG_TIERS` | **The 8 tiers**: `(name, 1-in-N odds, sell value)` — edit odds or dupe/sell payouts |
-| `59` | `RNG_ROLE_TIERS` | Which tiers grant a role + announcement (Goon Master, Seguito) |
-| `74–79` | `RNG_EVENTS_SCHEDULE` | Recurring luck events — applied by the loop in `cogs/rng_engine.py:166` |
-| `82` | `IMAGE_URLS` | Unused image list (kept out of main.py) |
+| `46` | `RNG_MULTIROLL_COUNT` | How many rolls a ×10 button runs (10) |
+| `49–51` | `RNG_DAILY_BASE` / `RNG_DAILY_STREAK_BONUS` / `RNG_DAILY_CAP` | Daily login reward: base (20), +/streak day (10), cap (100) |
+| `56–58` | `RNG_COMBO_WINDOW` / `RNG_COMBO_STEP` / `RNG_COMBO_CAP` | Roll streak combo: 2-min window, +5%/level, capped x2 (20 combo) |
+| `62` | `RNG_SESSION_WINDOW` | Session stats idle window (600 s = 10 min) |
+| `66–73` | `RNG_MISSIONS` | **Daily missions** — `(id, name, target, reward)`; 3 are picked per user per day |
+| `74` | `RNG_MISSIONS_PER_DAY` | How many missions a user gets daily (3) |
+| `78–102` | `RNG_CRAFT_RECIPES` | **Crafting recipes** — `materials` is `[[item_name, qty], ...]`, `product` is the result item name |
+| `104–109` | `RNG_TIERS` | **The 8 tiers**: `(name, 1-in-N odds, sell value)` — edit odds or dupe/sell payouts |
+| `111` | `RNG_ROLE_TIERS` | Which tiers grant a role + announcement (Goon Master, Seguito) |
+| `126–131` | `RNG_EVENTS_SCHEDULE` | Recurring luck events — applied by the loop in `cogs/rng_engine.py` |
+| `134` | `IMAGE_URLS` | Unused image list (kept out of main.py) |
 
 ---
 
@@ -196,6 +203,8 @@ DBs upgrade in place.
 | `rng_active_buffs` | `db.py:297` | Luck buffs: Luck Goon, Goon Charm (rolls_left), Goon Relic (permanent) | `cogs/rng_engine.py` |
 | `rng_global_events` | `db.py:307` | Active luck-multiplier events (admin + scheduled) | `cogs/rng_engine.py` |
 | `rng_last_use` | `db.py:314` | Daily-use gates (Re-Goon once/day) | `cogs/inventory_ui.py` |
+| `rng_daily` | `db.py:325` | Daily login reward: last claim date + streak per (guild, user) | `cogs/gacha_ui.py` |
+| `rng_missions` | `db.py:335` | Daily mission progress/claimed per (guild, user, date, mission) | `cogs/gacha_ui.py` + `rng_engine.py` |
 
 ---
 
@@ -274,17 +283,22 @@ DBs upgrade in place.
 |---|---|
 | `/suggest` | `cogs/suggestions.py:96` |
 
-### 🎰 RNG Gacha (`cogs/rng_engine.py` + `cogs/inventory_ui.py`)
+### 🎰 RNG Gacha (`cogs/rng_engine.py` + `cogs/inventory_ui.py` + `cogs/gacha_ui.py`)
 | Command | Line |
 |---|---|
-| `/roll` | `cogs/rng_engine.py:434` |
-| `/tokens` | `cogs/rng_engine.py:468` |
-| `/shop list` | `cogs/rng_engine.py:534` (group `:145`) |
-| `/shop buy` | `cogs/rng_engine.py:551` |
+| `/roll` | `cogs/rng_engine.py:669` — result + cooldown embeds carry the 🎲 Roll de nuevo / 🎲 ×10 buttons (`RollAgainView` at `:194`) |
+| `/tokens` | `cogs/rng_engine.py:712` |
+| `/shop list` | `cogs/rng_engine.py:778` (group `:145`) |
+| `/shop buy` | `cogs/rng_engine.py:797` |
 | `/rng event start` *(admin)* | `cogs/rng_engine.py:591` (groups `:146`, `:151`) |
 | `/rng event stop` *(admin)* | `cogs/rng_engine.py:615` |
 | `/rng event list` *(admin)* | `cogs/rng_engine.py:621` |
-| `/inventory` | `cogs/inventory_ui.py:399` |
+| `/inventory` | `cogs/inventory_ui.py:399` — includes bulk-sell dupes button |
+| `/gacha daily` | `cogs/gacha_ui.py:465` (group `:282`) |
+| `/gacha missions` | `cogs/gacha_ui.py:477` |
+| `/gacha collection` | `cogs/gacha_ui.py:484` |
+| `/gacha craft` | `cogs/gacha_ui.py:491` |
+| `/gacha top` | `cogs/gacha_ui.py:498` |
 
 ### ⚙️ Settings (`cogs/settings.py`, group `:14`) — admin
 | Command | Line |
@@ -311,7 +325,7 @@ DBs upgrade in place.
 
 | You want to change… | Go to |
 |---|---|
-| Drop odds of a tier | `config.py:47` |
+| Drop odds of a tier | `config.py:104` |
 | Add a new aura/item | `db.py:328` |
 | Change an item's emoji/price | `db.py:328` |
 | Token emoji | `config.py:31` |
@@ -321,6 +335,9 @@ DBs upgrade in place.
 | Daily reward amount | `cogs/gambling.py:844` |
 | Roulette payout | `cogs/gambling.py:400` |
 | `/help` text | `main.py:230` |
-| RNG recurring events | `config.py:74` |
+| RNG recurring events | `config.py:126` |
+| Daily mission targets/rewards | `config.py:66` |
+| Crafting recipes | `config.py:78` |
+| Combo / ×10 / daily balance | `config.py:46–62` |
 | Dashboard message cap | `db.py:820` |
 | ToS / Privacy text | `dashboard/templates/terms.html`, `privacy.html` |

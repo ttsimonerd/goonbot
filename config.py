@@ -42,6 +42,60 @@ RNG_PITY_THRESHOLD = 100
 RNG_TOKENS_MIN = 1
 RNG_TOKENS_MAX = 10
 
+# Multi-roll: how many rolls a ×10 button runs in one go.
+RNG_MULTIROLL_COUNT = 10
+
+# Daily login reward: base tokens, per-streak-day bonus, and the cap.
+RNG_DAILY_BASE = 20
+RNG_DAILY_STREAK_BONUS = 10
+RNG_DAILY_CAP = 100
+
+# Roll streak combo: rolls within this window (seconds) build a combo.
+# Each combo level adds +RNG_COMBO_STEP to the token multiplier, capped at
+# RNG_COMBO_CAP (2.0 = x2 tokens at 20 combo). Idling past the window resets.
+RNG_COMBO_WINDOW = 120
+RNG_COMBO_STEP = 0.05
+RNG_COMBO_CAP = 2.0
+
+# Session stats: a 'session' is rolls within this idle window (seconds);
+# after that long without a roll, the session resets.
+RNG_SESSION_WINDOW = 600
+
+# Daily missions: 3 of these are picked per user per day (deterministic).
+# Fields: id, name, target (progress needed), reward (tokens).
+RNG_MISSIONS = [
+    {"id": "roll_10", "name": "Tira 10 veces", "target": 10, "reward": 30},
+    {"id": "roll_50", "name": "Tira 50 veces", "target": 50, "reward": 80},
+    {"id": "drop_gitano", "name": "Consigue un drop Gitano o mejor", "target": 1, "reward": 75},
+    {"id": "spend_250", "name": "Gasta 250 tokens en la tienda", "target": 250, "reward": 60},
+    {"id": "use_2", "name": "Usa 2 consumibles", "target": 2, "reward": 45},
+    {"id": "multiroll_2", "name": "Haz 2 multi-rolls (×10)", "target": 2, "reward": 50},
+]
+RNG_MISSIONS_PER_DAY = 3
+
+# Crafting recipes. materials/product reference item NAMES from the registry
+# (resolved to ids at runtime). materials is a list of (name, quantity).
+RNG_CRAFT_RECIPES = [
+    {
+        "name": "Aura Monster",
+        "emoji": "👹",
+        "materials": [["Los Pihes del GoonBot", 3]],
+        "product": "Aura Monster",
+    },
+    {
+        "name": "Amuleto Gitano",
+        "emoji": "🧿",
+        "materials": [["Los Pihes del GoonBot", 5]],
+        "product": "Amuleto Gitano",
+    },
+    {
+        "name": "Gooning Luck",
+        "emoji": "🎰",
+        "materials": [["Amuleto Gitano", 3]],
+        "product": "Gooning Luck",
+    },
+]
+
 # Tiers ordered from most common to rarest: (name, "1 in N" odds, sell value).
 # Sell value doubles as the duplicate auto-convert payout.
 RNG_TIERS = [
@@ -68,13 +122,13 @@ RNG_ROLE_TIERS = {"Goon Master", "Seguito del GoonBot"}
 #   weekday    — 0=Monday .. 6=Sunday, or None for every day
 #   start_hour / end_hour — 24-hour clock; end_hour 24 = all day
 #
-# The draft below gives a daily 1.5x "happy hour" (18-21h) and a 2x all-day
-# boost on weekends. Weekend evenings stack both (1.5 x 2 = 3x luck).
-# Remove or edit entries freely.
+# The draft below gives a daily 1.5x "happy hour" (18-21h) and a 1.5x
+# all-day boost on weekends. Weekend evenings stack both (1.5 x 1.5 = 2.25x
+# luck). Remove or edit entries freely.
 RNG_EVENTS_SCHEDULE = [
     {"name": "Happy Hour Goon", "multiplier": 1.5, "weekday": None, "start_hour": 18, "end_hour": 21},
-    {"name": "Fin de Semana Goon", "multiplier": 2.0, "weekday": 5, "start_hour": 0, "end_hour": 24},
-    {"name": "Fin de Semana Goon", "multiplier": 2.0, "weekday": 6, "start_hour": 0, "end_hour": 24},
+    {"name": "Fin de Semana Goon", "multiplier": 1.5, "weekday": 5, "start_hour": 0, "end_hour": 24},
+    {"name": "Fin de Semana Goon", "multiplier": 1.5, "weekday": 6, "start_hour": 0, "end_hour": 24},
 ]
 
 # Image URLs used by the bot (currently unused — kept here so they don't

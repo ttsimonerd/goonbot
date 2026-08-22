@@ -39,6 +39,45 @@ _CATEGORY_LABELS = {
 }
 
 
+class BulkSellConfirmView(discord.ui.View):
+    """Confirmación antes de vender todos los duplicados (edita el mismo mensaje)."""
+
+    def __init__(
+        self,
+        cog: "Inventory",
+        guild_id: int,
+        user_id: int,
+        dupe_count: int,
+        est_tokens: int,
+    ) -> None:
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.dupe_count = dupe_count
+        self.est_tokens = est_tokens
+
+    @discord.ui.button(label="✅ Confirmar", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ No es tu inventario.", ephemeral=True)
+            return
+        items, tokens = await db.rng_sell_duplicates(self.guild_id, self.user_id)
+        await self.cog._render(interaction, self.guild_id, self.user_id, "ALL", None)
+        if items > 0:
+            await interaction.followup.send(
+                f"💸 Vendiste **{items} duplicados** por {tokens} {GOONBOT_TOKEN_EMOJI}.",
+                ephemeral=True,
+            )
+
+    @discord.ui.button(label="❌ Cancelar", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ No es tu inventario.", ephemeral=True)
+            return
+        await self.cog._render(interaction, self.guild_id, self.user_id, "ALL", None)
+
+
 class InventoryView(discord.ui.View):
     """Rebuilt from scratch on every interaction (state lives in the DB)."""
 
@@ -58,6 +97,10 @@ class InventoryView(discord.ui.View):
         self.category = category
         self.item_id = item_id
         self.message: discord.Message | None = None
+        self.dupe_count = sum(x["quantity"] - 1 for x in inventory if x["quantity"] > 1)
+        self.dupe_tokens = sum(
+            (x["quantity"] - 1) * x["sell_value"] for x in inventory if x["quantity"] > 1
+        )
 
         # --- Category filter ---
         category_select = discord.ui.Select(
@@ -113,6 +156,15 @@ class InventoryView(discord.ui.View):
         engine = self.cog.bot.get_cog("Rng")
         if engine is not None and engine.is_auto_active(guild_id, user_id):
             self._add_button("Stop Auto", "stop_auto", discord.ButtonStyle.danger, self._on_stop_auto)
+
+        # --- Bulk-sell all duplicates (only when there are any) ---
+        if self.dupe_count > 0:
+            self._add_button(
+                f"Vender {self.dupe_count} dupes",
+                "sell_dupes",
+                discord.ButtonStyle.danger,
+                self._on_sell_dupes,
+            )
 
     def _add_button(
         self,
@@ -210,6 +262,9 @@ class InventoryView(discord.ui.View):
 
         if consumed:
             await db.rng_remove_item(self.guild_id, self.user_id, self.item_id, 1)
+            engine = self.cog.bot.get_cog("Rng")
+            if engine is not None:
+                await engine._bump_mission(self.guild_id, self.user_id, "use_2")
         await self._refresh_after(interaction, message)
         if result_embed is not None:
             try:
@@ -230,6 +285,29 @@ class InventoryView(discord.ui.View):
             stopped = await engine.stop_auto(self.guild_id, self.user_id)
         msg = "🛑 Auto-roll detenido." if stopped else "⚠️ No había auto-roll activo."
         await self._refresh_after(interaction, msg)
+
+    async def _on_sell_dupes(self, interaction: discord.Interaction) -> None:
+        """Show a confirm prompt (same message, swapped view)."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ No es tu inventario.", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title="💸 Vender todos los duplicados",
+            description=(
+                f"Tienes **{self.dupe_count} duplicados** que se venderían por "
+                f"**~{self.dupe_tokens}** {GOONBOT_TOKEN_EMOJI}.\n"
+                "Se conserva 1 de cada objeto. ¿Continuar?"
+            ),
+            color=discord.Color.dark_red(),
+        )
+        confirm = BulkSellConfirmView(
+            self.cog,
+            self.guild_id,
+            self.user_id,
+            self.dupe_count,
+            self.dupe_tokens,
+        )
+        await interaction.response.edit_message(embed=embed, view=confirm)
 
     async def _refresh_after(self, interaction: discord.Interaction, message: str) -> None:
         """Rebuild the view with a confirmation message on top."""
@@ -263,7 +341,8 @@ class Inventory(commands.Cog, name="Inventory"):
         embed = self._build_embed(interaction.user, user, inventory, category, item_id)
         view = InventoryView(self, guild_id, user_id, inventory, category, item_id)
 
-        if interaction.response.is_done():
+        if interaction.response.is_done() or interaction.type == discord.InteractionType.component:
+            # Button/select clicks edit the message they live on — never a new one.
             await interaction.response.edit_message(embed=embed, view=view)
         else:
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
