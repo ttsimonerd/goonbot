@@ -31,6 +31,9 @@ class Settings(commands.Cog, name="Settings"):
         winning_ch = interaction.guild.get_channel(data["gambling_winners_channel_id"]) if data["gambling_winners_channel_id"] else None
         music_ch = interaction.guild.get_channel(data["music_channel_id"]) if data["music_channel_id"] else None
         music_battle_ch = interaction.guild.get_channel(data["music_battle_channel_id"]) if data["music_battle_channel_id"] else None
+        rng_ch = interaction.guild.get_channel(data["rng_channel_id"]) if data["rng_channel_id"] else None
+        rng_goon_role = interaction.guild.get_role(data["rng_role_goon_master_id"]) if data["rng_role_goon_master_id"] else None
+        rng_seg_role = interaction.guild.get_role(data["rng_role_seguito_id"]) if data["rng_role_seguito_id"] else None
 
         embed = discord.Embed(title="⚙️ GoonBot's config", color=discord.Color.blurple())
         embed.add_field(
@@ -58,6 +61,19 @@ class Settings(commands.Cog, name="Settings"):
         embed.add_field(
             name="⚔️ Music battle channel:",
             value=music_battle_ch.mention if music_battle_ch else "*(not set)*",
+            inline=False
+        )
+        embed.add_field(
+            name="🎲 RNG announcements channel:",
+            value=rng_ch.mention if rng_ch else "*(not set)*",
+            inline=False
+        )
+        embed.add_field(
+            name="🎭 RNG tier roles:",
+            value=(
+                f"Goon Master: {rng_goon_role.mention if rng_goon_role else '*(not set)*'}\n"
+                f"Seguito del GoonBot: {rng_seg_role.mention if rng_seg_role else '*(not set)*'}"
+            ),
             inline=False
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -132,6 +148,34 @@ class Settings(commands.Cog, name="Settings"):
             return
         await db.update_settings(interaction.guild_id, music_battle_channel_id=str(channel.id))
         await interaction.response.send_message(f"✅ Music battle channel set to: {channel.mention}.", ephemeral=True)
+
+    @settings_group.command(name="rng_channel", description="Set the RNG announcements channel (rare drops).")
+    @app_commands.describe(channel="Channel for Goon Master+ drop announcements")
+    async def set_rng_channel(self, interaction: Interaction, channel: discord.TextChannel) -> None:
+        """Configura el canal donde se anuncian los drops raros del RNG."""
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
+        await db.update_settings(interaction.guild_id, rng_channel_id=str(channel.id))
+        await interaction.response.send_message(f"✅ RNG announcements channel set to: {channel.mention}.", ephemeral=True)
+
+    @settings_group.command(name="rng_role", description="Set the role granted for a rare RNG tier drop.")
+    @app_commands.choices(
+        tier=[
+            app_commands.Choice(name="Goon Master", value="goon_master"),
+            app_commands.Choice(name="Seguito del GoonBot", value="seguito"),
+        ]
+    )
+    @app_commands.describe(tier="Tier", role="Role to grant on drop")
+    async def set_rng_role(self, interaction: Interaction, tier: str, role: discord.Role) -> None:
+        """Configura el rol que se asigna al dropear cada tier raro."""
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
+        key = "rng_role_goon_master_id" if tier == "goon_master" else "rng_role_seguito_id"
+        await db.update_settings(interaction.guild_id, **{key: str(role.id)})
+        label = "Goon Master" if tier == "goon_master" else "Seguito del GoonBot"
+        await interaction.response.send_message(f"✅ {label} role set to: {role.mention}.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

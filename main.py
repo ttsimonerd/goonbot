@@ -59,7 +59,10 @@ class GoonBot(commands.Bot):
             "cogs.mensajes",
             "cogs.settings",
             "cogs.soundboard",
-            "cogs.suggestions"
+            "cogs.suggestions",
+            "cogs.rng_engine",
+            "cogs.inventory_ui",
+            "cogs.roles"
         ]
 
         for ext in extensions:
@@ -312,6 +315,19 @@ async def help_command(interaction: discord.Interaction):
     )
 
     embed.add_field(
+        name="🎰 RNG Gacha `/`",
+        value=(
+            "`/roll` — Tira el gacha (15s de enfriamiento)\n"
+            "`/tokens` — Tu saldo de GoonBot Tokens, pity y suerte\n"
+            "`/shop` — Tienda de GoonBot Tokens\n"
+            "`/shop buy <objeto>` — Compra objetos\n"
+            "`/inventory` — Tu inventario (equipar, usar, vender)\n"
+            "`/rng event` — *(Admin)* Eventos globales de suerte"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
         name="⚙️ Configuración `/` *(Admin)*",
         value=(
             "`/settings view` — Ver configuración actual\n"
@@ -319,6 +335,8 @@ async def help_command(interaction: discord.Interaction):
             "`/settings winners_channel #canal` — Cambiar canal de ganadores diarios\n"
             "`/settings suggestions_channel #canal` — Cambiar canal de sugerencias\n"
             "`/settings music_channel #canal` — Canal de enlaces de música\n"
+            "`/settings rng_channel #canal` — Canal de anuncios de drops raros\n"
+            "`/settings rng_role <tier> @rol` — Rol por tier raro\n"
             "`/settings lockout_hours` — Horas de ban por gambling\n"
             "`/settings max_warns` — Warns antes del ban"
         ),

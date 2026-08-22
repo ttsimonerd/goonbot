@@ -63,7 +63,10 @@ CREATE TABLE IF NOT EXISTS settings (
     gambling_winners_channel_id TEXT,
     suggestions_channel_id TEXT,
     music_channel_id TEXT,
-    music_battle_channel_id TEXT
+    music_battle_channel_id TEXT,
+    rng_channel_id TEXT,
+    rng_role_goon_master_id TEXT,
+    rng_role_seguito_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS dashboard_users (
@@ -246,7 +249,120 @@ CREATE TABLE IF NOT EXISTS music_cooldowns (
     available_at TEXT NOT NULL,
     PRIMARY KEY (guild_id, user_id, cooldown_type)
 );
+
+-- -------------------------------------------------------------------------
+-- RNG module (Sol's RNG-style gacha)
+-- -------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS rng_users (
+    guild_id TEXT NOT NULL,
+    discord_id TEXT NOT NULL,
+    total_rolls INTEGER NOT NULL DEFAULT 0,
+    pity_counter INTEGER NOT NULL DEFAULT 0,
+    currency_balance INTEGER NOT NULL DEFAULT 0,
+    equipped_aura_id INTEGER,
+    last_drop_tier TEXT,
+    last_roll_at TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (guild_id, discord_id),
+    FOREIGN KEY (equipped_aura_id) REFERENCES rng_item_registry(item_id)
+);
+
+CREATE TABLE IF NOT EXISTS rng_item_registry (
+    item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    rarity_tier TEXT NOT NULL,
+    base_odds INTEGER,
+    item_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    icon_emoji TEXT NOT NULL,
+    luck_multiplier REAL NOT NULL DEFAULT 1.0,
+    shop_price INTEGER,
+    sell_value INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS rng_user_inventories (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    item_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 0,
+    is_equipped INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id, item_id),
+    FOREIGN KEY (item_id) REFERENCES rng_item_registry(item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rng_inv_user
+ON rng_user_inventories (guild_id, user_id);
+
+CREATE TABLE IF NOT EXISTS rng_active_buffs (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    buff_type TEXT NOT NULL,
+    multiplier REAL NOT NULL,
+    expires_at TEXT,
+    rolls_left INTEGER,
+    PRIMARY KEY (guild_id, user_id, buff_type)
+);
+
+CREATE TABLE IF NOT EXISTS rng_global_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    multiplier REAL NOT NULL,
+    ends_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rng_last_use (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    use_type TEXT NOT NULL,
+    last_used_at TEXT NOT NULL,
+    PRIMARY KEY (guild_id, user_id, use_type)
+);
 """
+
+
+# Items seeded into rng_item_registry on first startup. base_odds is the
+# "1 in N" chance; shop_price makes an item purchasable (CONSUMABLE items are
+# shop-only and never roll). sell_value is the token payout for a duplicate
+# or a manual sale.
+RNG_ITEMS: list[dict[str, Any]] = [
+    # --- Equippable auras (drop pool) ---
+    {"name": "Laura", "rarity_tier": "Folk", "base_odds": 2, "item_type": "EQUIPPABLE",
+     "description": "La aura básica", "icon_emoji": "💅", "luck_multiplier": 1.0, "sell_value": 5},
+    {"name": "Mid-Aura", "rarity_tier": "Son", "base_odds": 10, "item_type": "EQUIPPABLE",
+     "description": "El aura promedio, ni fu ni fa", "icon_emoji": "🫤", "luck_multiplier": 1.0, "sell_value": 25},
+    {"name": "Aura Monster", "rarity_tier": "Samaritano", "base_odds": 100, "item_type": "EQUIPPABLE",
+     "description": "MONSTER ENERGY, modo bestia", "icon_emoji": "👹", "luck_multiplier": 1.0, "sell_value": 100},
+    {"name": "Gooning Luck", "rarity_tier": "Gitano", "base_odds": 500, "item_type": "EQUIPPABLE",
+     "description": "Suerte gooner (+5% luck equipada)", "icon_emoji": "🎰", "luck_multiplier": 1.05, "sell_value": 500},
+    {"name": "Final Boss Aura", "rarity_tier": "Final Boss", "base_odds": 2500, "item_type": "EQUIPPABLE",
+     "description": "El jefe final (+10% luck equipada)", "icon_emoji": "☠️", "luck_multiplier": 1.10, "sell_value": 2500},
+    {"name": "Absolute Aura", "rarity_tier": "Goon Master", "base_odds": 250000, "item_type": "EQUIPPABLE",
+     "description": "La cima, el absoluto", "icon_emoji": "🔥", "luck_multiplier": 1.0, "sell_value": 100000},
+    # --- Materials (drop pool) ---
+    {"name": "Los Pihes del GoonBot", "rarity_tier": "Son", "base_odds": 10, "item_type": "MATERIAL",
+     "description": "Los herederos del GoonBot", "icon_emoji": "👶", "luck_multiplier": 1.0, "sell_value": 25},
+    {"name": "Amuleto Gitano", "rarity_tier": "Gitano", "base_odds": 500, "item_type": "MATERIAL",
+     "description": "Amuleto de la suerte", "icon_emoji": "🧿", "luck_multiplier": 1.0, "sell_value": 500},
+    {"name": "GoonBot NFT", "rarity_tier": "Seguito del GoonBot", "base_odds": 1000000, "item_type": "MATERIAL",
+     "description": "El flex definitivo", "icon_emoji": "💎", "luck_multiplier": 1.0, "sell_value": 1000000},
+    # --- Relics (drop pool) ---
+    {"name": "W Goon", "rarity_tier": "Final Boss", "base_odds": 2500, "item_type": "RELIC",
+     "description": "W: protege tu pity de reiniciarse", "icon_emoji": "💯", "luck_multiplier": 1.0, "sell_value": 2500},
+    {"name": "Goon Relic", "rarity_tier": "El Jefe", "base_odds": 25000, "item_type": "RELIC",
+     "description": "Reliquia del goon (+5% luck permanente)", "icon_emoji": "🗿", "luck_multiplier": 1.0, "sell_value": 12500},
+    # --- Consumables (shop only) ---
+    {"name": "Luck Goon", "rarity_tier": "Folk", "base_odds": None, "item_type": "CONSUMABLE",
+     "description": "+50% luck durante 10 min", "icon_emoji": "🍀", "luck_multiplier": 1.0, "shop_price": 120, "sell_value": 60},
+    {"name": "Auto-Goon", "rarity_tier": "Folk", "base_odds": None, "item_type": "CONSUMABLE",
+     "description": "Auto-roll durante 10 min", "icon_emoji": "🔁", "luck_multiplier": 1.0, "shop_price": 180, "sell_value": 90},
+    {"name": "Goon Charm", "rarity_tier": "Folk", "base_odds": None, "item_type": "CONSUMABLE",
+     "description": "+25% luck durante 20 rolls", "icon_emoji": "💫", "luck_multiplier": 1.0, "shop_price": 250, "sell_value": 125},
+    {"name": "Pity Boost", "rarity_tier": "Folk", "base_odds": None, "item_type": "CONSUMABLE",
+     "description": "+25 puntos de pity al instante", "icon_emoji": "🚀", "luck_multiplier": 1.0, "shop_price": 400, "sell_value": 200},
+    {"name": "Re-Goon", "rarity_tier": "Folk", "base_odds": None, "item_type": "CONSUMABLE",
+     "description": "Roll gratis al instante (1 vez al día)", "icon_emoji": "🎲", "luck_multiplier": 1.0, "shop_price": 1500, "sell_value": 750},
+]
 
 
 async def init_db() -> None:
@@ -264,6 +380,7 @@ async def init_db() -> None:
 
     await _connection.executescript(SCHEMA)
     await _migrate()
+    await seed_rng_registry()
     await _connection.commit()
 
 
@@ -281,6 +398,19 @@ async def _migrate() -> None:
     if "music_battle_channel_id" not in columns:
         await _connection.execute(
             "ALTER TABLE settings ADD COLUMN music_battle_channel_id TEXT"
+        )
+
+    if "rng_channel_id" not in columns:
+        await _connection.execute(
+            "ALTER TABLE settings ADD COLUMN rng_channel_id TEXT"
+        )
+    if "rng_role_goon_master_id" not in columns:
+        await _connection.execute(
+            "ALTER TABLE settings ADD COLUMN rng_role_goon_master_id TEXT"
+        )
+    if "rng_role_seguito_id" not in columns:
+        await _connection.execute(
+            "ALTER TABLE settings ADD COLUMN rng_role_seguito_id TEXT"
         )
 
     cursor = await _connection.execute("PRAGMA table_info(economy)")
@@ -530,6 +660,9 @@ DEFAULT_SETTINGS = {
     "suggestions_channel_id": None,
     "music_channel_id": None,
     "music_battle_channel_id": None,
+    "rng_channel_id": None,
+    "rng_role_goon_master_id": None,
+    "rng_role_seguito_id": None,
 }
 
 
@@ -539,7 +672,8 @@ async def get_settings(guild_id: int) -> dict[str, Any]:
     cursor = await db.execute(
         "SELECT gambling_channel_id, gambling_lockout_hours, "
         "gambling_max_warns, gambling_winners_channel_id, "
-        "suggestions_channel_id, music_channel_id, music_battle_channel_id "
+        "suggestions_channel_id, music_channel_id, music_battle_channel_id, "
+        "rng_channel_id, rng_role_goon_master_id, rng_role_seguito_id "
         "FROM settings WHERE guild_id = ?",
         (str(guild_id),),
     )
@@ -564,6 +698,9 @@ async def get_settings(guild_id: int) -> dict[str, Any]:
         "suggestions_channel_id": int(row[4]) if row[4] else None,
         "music_channel_id": int(row[5]) if row[5] else None,
         "music_battle_channel_id": int(row[6]) if row[6] else None,
+        "rng_channel_id": int(row[7]) if row[7] else None,
+        "rng_role_goon_master_id": int(row[8]) if row[8] else None,
+        "rng_role_seguito_id": int(row[9]) if row[9] else None,
     }
 
 
@@ -1125,3 +1262,474 @@ async def ensure_api_key_seeded() -> None:
         env_key = os.getenv("GOONBOT_API_KEY")
         if env_key:
             await set_api_key(env_key)
+
+
+# ---------------------------------------------------------------------------
+# RNG module
+# ---------------------------------------------------------------------------
+
+async def seed_rng_registry() -> None:
+    """Idempotently seed the item registry from RNG_ITEMS."""
+    db = _conn()
+
+    async with _write_lock:
+        for item in RNG_ITEMS:
+            await db.execute(
+                "INSERT OR IGNORE INTO rng_item_registry "
+                "(name, rarity_tier, base_odds, item_type, description, "
+                "icon_emoji, luck_multiplier, shop_price, sell_value) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    item["name"],
+                    item["rarity_tier"],
+                    item["base_odds"],
+                    item["item_type"],
+                    item["description"],
+                    item["icon_emoji"],
+                    item["luck_multiplier"],
+                    item.get("shop_price"),
+                    item["sell_value"],
+                ),
+            )
+        await db.commit()
+
+
+def _rng_row_to_item(row: tuple) -> dict[str, Any]:
+    return {
+        "item_id": row[0],
+        "name": row[1],
+        "rarity_tier": row[2],
+        "base_odds": row[3],
+        "item_type": row[4],
+        "description": row[5],
+        "icon_emoji": row[6],
+        "luck_multiplier": row[7],
+        "shop_price": row[8],
+        "sell_value": row[9],
+    }
+
+
+async def rng_get_registry() -> list[dict[str, Any]]:
+    """All items in the registry, rarest first."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT item_id, name, rarity_tier, base_odds, item_type, description, "
+        "icon_emoji, luck_multiplier, shop_price, sell_value "
+        "FROM rng_item_registry ORDER BY sell_value DESC, name"
+    )
+    rows = await cursor.fetchall()
+    return [_rng_row_to_item(r) for r in rows]
+
+
+async def rng_get_drop_pool() -> list[dict[str, Any]]:
+    """Items that can actually drop (excludes shop-only consumables)."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT item_id, name, rarity_tier, base_odds, item_type, description, "
+        "icon_emoji, luck_multiplier, shop_price, sell_value "
+        "FROM rng_item_registry "
+        "WHERE base_odds IS NOT NULL AND item_type != 'CONSUMABLE' "
+        "ORDER BY sell_value DESC, name"
+    )
+    rows = await cursor.fetchall()
+    return [_rng_row_to_item(r) for r in rows]
+
+
+async def rng_get_shop_items() -> list[dict[str, Any]]:
+    """Items sold in the shop."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT item_id, name, rarity_tier, base_odds, item_type, description, "
+        "icon_emoji, luck_multiplier, shop_price, sell_value "
+        "FROM rng_item_registry WHERE shop_price IS NOT NULL "
+        "ORDER BY shop_price, name"
+    )
+    rows = await cursor.fetchall()
+    return [_rng_row_to_item(r) for r in rows]
+
+
+async def rng_get_user(guild_id: int, user_id: int) -> dict[str, Any]:
+    """Fetch (or create) a user's RNG profile."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT total_rolls, pity_counter, currency_balance, equipped_aura_id, "
+        "last_drop_tier, last_roll_at, created_at "
+        "FROM rng_users WHERE guild_id = ? AND discord_id = ?",
+        (str(guild_id), str(user_id)),
+    )
+    row = await cursor.fetchone()
+
+    if row is None:
+        async with _write_lock:
+            await db.execute(
+                "INSERT OR IGNORE INTO rng_users "
+                "(guild_id, discord_id, created_at) VALUES (?, ?, ?)",
+                (str(guild_id), str(user_id), datetime.datetime.utcnow().isoformat()),
+            )
+            await db.commit()
+        return {
+            "total_rolls": 0,
+            "pity_counter": 0,
+            "currency_balance": 0,
+            "equipped_aura_id": None,
+            "last_drop_tier": None,
+            "last_roll_at": None,
+            "created_at": None,
+        }
+
+    return {
+        "total_rolls": row[0],
+        "pity_counter": row[1],
+        "currency_balance": row[2],
+        "equipped_aura_id": int(row[3]) if row[3] else None,
+        "last_drop_tier": row[4],
+        "last_roll_at": row[5],
+        "created_at": row[6],
+    }
+
+
+async def rng_update_user(guild_id: int, user_id: int, **fields: Any) -> None:
+    """Partial update of a user's RNG profile."""
+    if not fields:
+        return
+    await rng_get_user(guild_id, user_id)
+    columns = ", ".join(f"{key} = ?" for key in fields)
+    values = list(fields.values()) + [str(guild_id), str(user_id)]
+    db = _conn()
+    async with _write_lock:
+        await db.execute(
+            f"UPDATE rng_users SET {columns} "
+            "WHERE guild_id = ? AND discord_id = ?",
+            values,
+        )
+        await db.commit()
+
+
+async def rng_add_tokens(guild_id: int, user_id: int, amount: int) -> int:
+    """Add tokens (amount may be negative, floored at 0). Returns new balance."""
+    db = _conn()
+    await rng_get_user(guild_id, user_id)
+    async with _write_lock:
+        await db.execute(
+            "UPDATE rng_users SET currency_balance = MAX(0, currency_balance + ?) "
+            "WHERE guild_id = ? AND discord_id = ?",
+            (amount, str(guild_id), str(user_id)),
+        )
+        cursor = await db.execute(
+            "SELECT currency_balance FROM rng_users "
+            "WHERE guild_id = ? AND discord_id = ?",
+            (str(guild_id), str(user_id)),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return row[0]
+
+
+async def rng_spend_tokens(guild_id: int, user_id: int, amount: int) -> bool:
+    """Deduct tokens atomically; returns False if the user can't afford it."""
+    db = _conn()
+    await rng_get_user(guild_id, user_id)
+    async with _write_lock:
+        cursor = await db.execute(
+            "SELECT currency_balance FROM rng_users "
+            "WHERE guild_id = ? AND discord_id = ?",
+            (str(guild_id), str(user_id)),
+        )
+        row = await cursor.fetchone()
+        if row is None or row[0] < amount:
+            return False
+        await db.execute(
+            "UPDATE rng_users SET currency_balance = currency_balance - ? "
+            "WHERE guild_id = ? AND discord_id = ?",
+            (amount, str(guild_id), str(user_id)),
+        )
+        await db.commit()
+        return True
+
+
+async def rng_get_inventory(guild_id: int, user_id: int) -> list[dict[str, Any]]:
+    """The user's inventory joined with registry info, rarest first."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT i.item_id, i.name, i.rarity_tier, i.base_odds, i.item_type, "
+        "i.description, i.icon_emoji, i.luck_multiplier, i.shop_price, "
+        "i.sell_value, inv.quantity, inv.is_equipped "
+        "FROM rng_user_inventories inv "
+        "JOIN rng_item_registry i ON i.item_id = inv.item_id "
+        "WHERE inv.guild_id = ? AND inv.user_id = ? AND inv.quantity > 0 "
+        "ORDER BY i.sell_value DESC, i.name",
+        (str(guild_id), str(user_id)),
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            "item_id": r[0],
+            "name": r[1],
+            "rarity_tier": r[2],
+            "base_odds": r[3],
+            "item_type": r[4],
+            "description": r[5],
+            "icon_emoji": r[6],
+            "luck_multiplier": r[7],
+            "shop_price": r[8],
+            "sell_value": r[9],
+            "quantity": r[10],
+            "is_equipped": bool(r[11]),
+        }
+        for r in rows
+    ]
+
+
+async def rng_add_item(
+    guild_id: int,
+    user_id: int,
+    item_id: int,
+    quantity: int = 1,
+) -> None:
+    db = _conn()
+    await rng_get_user(guild_id, user_id)
+    async with _write_lock:
+        await db.execute(
+            "INSERT INTO rng_user_inventories "
+            "(guild_id, user_id, item_id, quantity, is_equipped) "
+            "VALUES (?, ?, ?, ?, 0) "
+            "ON CONFLICT(guild_id, user_id, item_id) DO UPDATE SET "
+            "quantity = quantity + excluded.quantity",
+            (str(guild_id), str(user_id), item_id, quantity),
+        )
+        await db.commit()
+
+
+async def rng_remove_item(
+    guild_id: int,
+    user_id: int,
+    item_id: int,
+    quantity: int = 1,
+) -> bool:
+    """Remove quantity of an item. Returns False if not enough owned."""
+    db = _conn()
+    async with _write_lock:
+        cursor = await db.execute(
+            "SELECT quantity, is_equipped FROM rng_user_inventories "
+            "WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+            (str(guild_id), str(user_id), item_id),
+        )
+        row = await cursor.fetchone()
+        if row is None or row[0] < quantity:
+            return False
+        new_qty = row[0] - quantity
+        if new_qty <= 0:
+            await db.execute(
+                "DELETE FROM rng_user_inventories "
+                "WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (str(guild_id), str(user_id), item_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE rng_user_inventories SET quantity = ? "
+                "WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (new_qty, str(guild_id), str(user_id), item_id),
+            )
+        # If the equipped aura was sold, clear it.
+        if row[1]:
+            await db.execute(
+                "UPDATE rng_users SET equipped_aura_id = NULL "
+                "WHERE guild_id = ? AND discord_id = ?",
+                (str(guild_id), str(user_id)),
+            )
+        await db.commit()
+        return True
+
+
+async def rng_set_equipped(
+    guild_id: int,
+    user_id: int,
+    item_id: int | None,
+) -> None:
+    """Equip an aura (clearing the previous one) or unequip with None."""
+    db = _conn()
+    await rng_get_user(guild_id, user_id)
+    async with _write_lock:
+        await db.execute(
+            "UPDATE rng_user_inventories SET is_equipped = 0 "
+            "WHERE guild_id = ? AND user_id = ?",
+            (str(guild_id), str(user_id)),
+        )
+        if item_id is not None:
+            await db.execute(
+                "UPDATE rng_user_inventories SET is_equipped = 1 "
+                "WHERE guild_id = ? AND user_id = ? AND item_id = ?",
+                (str(guild_id), str(user_id), item_id),
+            )
+        await db.execute(
+            "UPDATE rng_users SET equipped_aura_id = ? "
+            "WHERE guild_id = ? AND discord_id = ?",
+            (item_id, str(guild_id), str(user_id)),
+        )
+        await db.commit()
+
+
+async def rng_get_buffs(guild_id: int, user_id: int) -> list[dict[str, Any]]:
+    """Active buffs (permanent ones have expires_at NULL)."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT buff_type, multiplier, expires_at, rolls_left "
+        "FROM rng_active_buffs WHERE guild_id = ? AND user_id = ? "
+        "AND (expires_at IS NULL OR expires_at > ?)",
+        (str(guild_id), str(user_id), datetime.datetime.utcnow().isoformat()),
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            "buff_type": r[0],
+            "multiplier": r[1],
+            "expires_at": r[2],
+            "rolls_left": r[3],
+        }
+        for r in rows
+    ]
+
+
+async def rng_add_buff(
+    guild_id: int,
+    user_id: int,
+    buff_type: str,
+    multiplier: float,
+    expires_at: str | None = None,
+    rolls_left: int | None = None,
+) -> None:
+    db = _conn()
+    await rng_get_user(guild_id, user_id)
+    async with _write_lock:
+        await db.execute(
+            "INSERT INTO rng_active_buffs "
+            "(guild_id, user_id, buff_type, multiplier, expires_at, rolls_left) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, buff_type) DO UPDATE SET "
+            "multiplier = excluded.multiplier, "
+            "expires_at = excluded.expires_at, "
+            "rolls_left = excluded.rolls_left",
+            (str(guild_id), str(user_id), buff_type, multiplier, expires_at, rolls_left),
+        )
+        await db.commit()
+
+
+async def rng_remove_buff(guild_id: int, user_id: int, buff_type: str) -> None:
+    db = _conn()
+    async with _write_lock:
+        await db.execute(
+            "DELETE FROM rng_active_buffs "
+            "WHERE guild_id = ? AND user_id = ? AND buff_type = ?",
+            (str(guild_id), str(user_id), buff_type),
+        )
+        await db.commit()
+
+
+async def rng_tick_roll_buffs(guild_id: int, user_id: int) -> None:
+    """Decrement roll-count buffs (Goon Charm) after each roll."""
+    db = _conn()
+    async with _write_lock:
+        await db.execute(
+            "UPDATE rng_active_buffs SET rolls_left = rolls_left - 1 "
+            "WHERE guild_id = ? AND user_id = ? AND buff_type = 'goon_charm' "
+            "AND rolls_left > 0",
+            (str(guild_id), str(user_id)),
+        )
+        await db.execute(
+            "DELETE FROM rng_active_buffs "
+            "WHERE guild_id = ? AND user_id = ? AND buff_type = 'goon_charm' "
+            "AND rolls_left <= 0",
+            (str(guild_id), str(user_id)),
+        )
+        await db.commit()
+
+
+async def rng_cleanup_expired_buffs() -> None:
+    """Remove time-based buffs that already expired."""
+    db = _conn()
+    async with _write_lock:
+        await db.execute(
+            "DELETE FROM rng_active_buffs WHERE expires_at IS NOT NULL "
+            "AND expires_at <= ?",
+            (datetime.datetime.utcnow().isoformat(),),
+        )
+        await db.commit()
+
+
+async def rng_active_events() -> list[dict[str, Any]]:
+    """Global events currently in effect."""
+    db = _conn()
+    cursor = await db.execute(
+        "SELECT event_id, name, multiplier, ends_at FROM rng_global_events "
+        "WHERE ends_at > ?",
+        (datetime.datetime.utcnow().isoformat(),),
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            "event_id": r[0],
+            "name": r[1],
+            "multiplier": r[2],
+            "ends_at": r[3],
+        }
+        for r in rows
+    ]
+
+
+async def rng_start_event(name: str, multiplier: float, ends_at: str) -> None:
+    db = _conn()
+    async with _write_lock:
+        await db.execute(
+            "INSERT INTO rng_global_events (name, multiplier, ends_at) "
+            "VALUES (?, ?, ?)",
+            (name, multiplier, ends_at),
+        )
+        await db.commit()
+
+
+async def rng_stop_event(event_id: int) -> None:
+    db = _conn()
+    async with _write_lock:
+        await db.execute(
+            "DELETE FROM rng_global_events WHERE event_id = ?",
+            (event_id,),
+        )
+        await db.commit()
+
+
+async def rng_cleanup_events() -> None:
+    """Delete expired events."""
+    db = _conn()
+    async with _write_lock:
+        await db.execute(
+            "DELETE FROM rng_global_events WHERE ends_at <= ?",
+            (datetime.datetime.utcnow().isoformat(),),
+        )
+        await db.commit()
+
+
+async def rng_can_use(guild_id: int, user_id: int, use_type: str) -> bool:
+    """True if the user hasn't used ``use_type`` today (daily limits)."""
+    db = _conn()
+    today = datetime.date.today().isoformat()
+    cursor = await db.execute(
+        "SELECT last_used_at FROM rng_last_use "
+        "WHERE guild_id = ? AND user_id = ? AND use_type = ?",
+        (str(guild_id), str(user_id), use_type),
+    )
+    row = await cursor.fetchone()
+    return row is None or row[0] != today
+
+
+async def rng_mark_use(guild_id: int, user_id: int, use_type: str) -> None:
+    db = _conn()
+    today = datetime.date.today().isoformat()
+    async with _write_lock:
+        await db.execute(
+            "INSERT INTO rng_last_use (guild_id, user_id, use_type, last_used_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, use_type) DO UPDATE SET "
+            "last_used_at = excluded.last_used_at",
+            (str(guild_id), str(user_id), use_type, today),
+        )
+        await db.commit()
